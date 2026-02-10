@@ -386,14 +386,58 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function deleteNotePermanently(id) {
         try {
-            const response = await fetch(`${API_URL}/notes/${id}/permanent`, {
-                method: 'DELETE'
-            });
+            console.log(`Попытка удалить заметку ${id} навсегда...`);
             
-            if (!response.ok) throw new Error('Ошибка удаления');
+            // Пробуем разные варианты endpoint'ов для постоянного удаления
+            const endpoints = [
+                `${API_URL}/notes/${id}/permanent`,
+                `${API_URL}/notes/${id}?permanent=true`,
+                `${API_URL}/notes/${id}?force=true`,
+                `${API_URL}/notes/${id}?hard=true`
+            ];
             
-            showNotification('Заметка удалена навсегда', 'success');
-            await loadNotes();
+            let success = false;
+            
+            for (const endpoint of endpoints) {
+                try {
+                    console.log(`Пробуем endpoint: ${endpoint}`);
+                    const response = await fetch(endpoint, {
+                        method: 'DELETE'
+                    });
+                    
+                    console.log(`Ответ: ${response.status}`);
+                    
+                    if (response.ok) {
+                        success = true;
+                        console.log(`Успешно удалено через ${endpoint}`);
+                        break;
+                    }
+                } catch (error) {
+                    console.log(`Endpoint ${endpoint} не сработал:`, error.message);
+                    continue;
+                }
+            }
+            
+            if (!success) {
+                // Если ни один endpoint постоянного удаления не сработал, пробуем обычное удаление
+                console.log('Пробуем обычное удаление...');
+                const response = await fetch(`${API_URL}/notes/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    success = true;
+                    console.log('Удалено через обычный DELETE');
+                }
+            }
+            
+            if (success) {
+                showNotification('Заметка удалена навсегда', 'success');
+                await loadNotes();
+            } else {
+                throw new Error('Не удалось удалить заметку');
+            }
+            
         } catch (error) {
             console.error('Ошибка удаления:', error);
             showNotification('Ошибка при удалении заметки', 'error');
@@ -523,130 +567,131 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             console.log('Попытка очистки всех заметок...');
             
-            // Пробуем разные варианты endpoint'ов
-            const endpoints = [
-                `${API_URL}/notes/clear-all?confirm=true`,
-                `${API_URL}/notes/clear-all`,
-                `${API_URL}/notes?clearAll=true&confirm=true`,
-                `${API_URL}/notes?confirm=true`,
-                `${API_URL}/notes?deleteAll=true`,
-                `${API_URL}/notes/all`
-            ];
-            
-            let success = false;
-            let successfulEndpoint = '';
-            
-            for (const endpoint of endpoints) {
-                try {
-                    console.log(`Пробуем endpoint: ${endpoint}`);
-                    const response = await fetch(endpoint, {
-                        method: 'DELETE',
-                        headers: { 'Content-Type': 'application/json' }
-                    });
-                    
-                    console.log(`Ответ от ${endpoint}: ${response.status} ${response.statusText}`);
-                    
-                    if (response.ok) {
-                        console.log(`Успех с endpoint: ${endpoint}`);
-                        success = true;
-                        successfulEndpoint = endpoint;
-                        break;
-                    }
-                } catch (error) {
-                    console.log(`Endpoint ${endpoint} не сработал:`, error.message);
-                    continue;
-                }
-            }
-            
-            if (success) {
-                showNotification('Все заметки удалены', 'success');
-                
-                // Обновляем UI немедленно
-                notes = [];
-                renderNotes();
-                
-                // Перезагружаем для синхронизации
-                setTimeout(() => {
-                    loadNotes();
-                }, 1000);
-                
-                return;
-            } else {
-                // Если ни один endpoint не сработал, пробуем удалить по одной
-                console.log('Ни один endpoint массового удаления не сработал, пробуем удалить по одной...');
-                await deleteAllNotesOneByOne();
-            }
-            
-        } catch (error) {
-            console.error('Ошибка очистки всех заметок:', error);
-            showNotification('Не удалось удалить все заметки. Попробуйте удалить их по одной.', 'error');
-        }
-    }
-
-    async function deleteAllNotesOneByOne() {
-        try {
-            showNotification('Начинаю удаление всех заметок по одной...', 'info');
-            
-            // Получаем все заметки
-            const response = await fetch(`${API_URL}/notes`);
-            const allNotes = await response.json();
+            // Получаем все заметки для отображения прогресса
+            const allNotesResponse = await fetch(`${API_URL}/notes`);
+            const allNotes = await allNotesResponse.json();
             
             if (!Array.isArray(allNotes) || allNotes.length === 0) {
                 showNotification('Нет заметок для удаления', 'info');
                 return;
             }
             
-            let deletedCount = 0;
             const totalNotes = allNotes.length;
+            showNotification(`Начинаю удаление ${totalNotes} заметок...`, 'info');
             
-            showNotification(`Найдено ${totalNotes} заметок для удаления...`, 'info');
+            // Создаем модальное окно для отображения прогресса
+            const progressModal = document.createElement('div');
+            progressModal.className = 'modal active';
+            progressModal.innerHTML = `
+                <div class="modal-box confirm-modal">
+                    <div class="modal-header">
+                        <h2><i class="fas fa-trash"></i> Удаление заметок</h2>
+                    </div>
+                    <p>Удаление заметок...</p>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                        </div>
+                        <div class="progress-text" id="progressText">0/${totalNotes}</div>
+                    </div>
+                    <div class="confirm-buttons">
+                        <button class="btn cancel" id="cancelProgressBtn">Отмена</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(progressModal);
             
+            let deletedCount = 0;
+            let cancelled = false;
+            
+            // Обработчик отмены
+            document.getElementById('cancelProgressBtn').addEventListener('click', () => {
+                cancelled = true;
+                progressModal.remove();
+                showNotification('Удаление отменено', 'info');
+            });
+            
+            // Удаляем заметки по одной
             for (const note of allNotes) {
+                if (cancelled) break;
+                
                 try {
-                    // Пробуем удалить навсегда
-                    const deleteResponse = await fetch(`${API_URL}/notes/${note.id}/permanent`, {
-                        method: 'DELETE'
-                    });
+                    console.log(`Удаление заметки ${note.id}...`);
                     
-                    if (deleteResponse.ok) {
-                        deletedCount++;
-                        console.log(`Удалена заметка ${note.id} (${deletedCount}/${totalNotes})`);
-                    } else {
-                        // Пробуем обычное удаление
-                        await fetch(`${API_URL}/notes/${note.id}`, {
-                            method: 'DELETE'
-                        });
-                        deletedCount++;
-                        console.log(`Удалена заметка ${note.id} (${deletedCount}/${totalNotes})`);
+                    // Пробуем разные endpoint'ы для удаления
+                    let deleteSuccess = false;
+                    const endpoints = [
+                        `${API_URL}/notes/${note.id}/permanent`,
+                        `${API_URL}/notes/${note.id}?permanent=true`,
+                        `${API_URL}/notes/${note.id}?force=true`,
+                        `${API_URL}/notes/${note.id}`
+                    ];
+                    
+                    for (const endpoint of endpoints) {
+                        try {
+                            const response = await fetch(endpoint, {
+                                method: 'DELETE'
+                            });
+                            
+                            if (response.ok) {
+                                deleteSuccess = true;
+                                break;
+                            }
+                        } catch (error) {
+                            continue;
+                        }
                     }
                     
-                    // Обновляем прогресс каждые 5 заметок
-                    if (deletedCount % 5 === 0) {
-                        showNotification(`Удалено ${deletedCount}/${totalNotes} заметок...`, 'info');
+                    if (deleteSuccess) {
+                        deletedCount++;
+                        
+                        // Обновляем прогресс
+                        const progressPercent = Math.round((deletedCount / totalNotes) * 100);
+                        const progressFill = document.getElementById('progressFill');
+                        const progressText = document.getElementById('progressText');
+                        
+                        if (progressFill) progressFill.style.width = `${progressPercent}%`;
+                        if (progressText) progressText.textContent = `${deletedCount}/${totalNotes}`;
+                        
+                        // Обновляем UI каждые 5 заметок
+                        if (deletedCount % 5 === 0) {
+                            // Обновляем локальный массив
+                            notes = notes.filter(n => n.id !== note.id);
+                            renderNotes();
+                        }
                     }
                     
-                    // Небольшая задержка чтобы не перегружать сервер
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                    // Задержка чтобы не перегружать сервер
+                    await new Promise(resolve => setTimeout(resolve, 200));
                     
-                } catch (noteError) {
-                    console.error(`Ошибка удаления заметки ${note.id}:`, noteError);
+                } catch (error) {
+                    console.error(`Ошибка удаления заметки ${note.id}:`, error);
                 }
             }
             
-            showNotification(`Успешно удалено ${deletedCount} заметок из ${totalNotes}`, 'success');
+            // Убираем модальное окно прогресса
+            progressModal.remove();
             
-            // Обновляем UI
-            notes = [];
-            renderNotes();
-            
-            // Перезагружаем для синхронизации
-            setTimeout(() => {
-                loadNotes();
-            }, 1000);
+            if (cancelled) {
+                showNotification(`Удаление отменено. Удалено ${deletedCount} заметок`, 'info');
+            } else if (deletedCount > 0) {
+                showNotification(`Успешно удалено ${deletedCount} заметок из ${totalNotes}`, 'success');
+                
+                // Полностью очищаем локальный массив и перезагружаем
+                notes = [];
+                renderNotes();
+                
+                // Перезагружаем с сервера для синхронизации
+                setTimeout(() => {
+                    loadNotes();
+                }, 1000);
+            } else {
+                showNotification('Не удалось удалить ни одной заметки', 'error');
+            }
             
         } catch (error) {
-            console.error('Ошибка удаления по одной:', error);
-            throw error;
+            console.error('Ошибка очистки всех заметок:', error);
+            showNotification('Ошибка при удалении заметок', 'error');
         }
     }
 
@@ -889,32 +934,4 @@ document.addEventListener('DOMContentLoaded', () => {
             ? '<i class="fas fa-sun"></i> Тема' 
             : '<i class="fas fa-moon"></i> Тема';
     }
-    
-    // Функция для тестирования endpoint'ов API (можно раскомментировать для отладки)
-    async function testApiEndpoints() {
-        console.log('Тестирование доступных endpointов API...');
-        
-        const endpointsToTest = [
-            { url: `${API_URL}/notes`, method: 'GET' },
-            { url: `${API_URL}/notes/clear-all`, method: 'DELETE' },
-            { url: `${API_URL}/notes?clearAll=true`, method: 'DELETE' },
-            { url: `${API_URL}/notes?confirm=true`, method: 'DELETE' },
-            { url: `${API_URL}/notes/all`, method: 'DELETE' }
-        ];
-        
-        for (const endpoint of endpointsToTest) {
-            try {
-                const response = await fetch(endpoint.url, {
-                    method: endpoint.method,
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                console.log(`Endpoint ${endpoint.url} (${endpoint.method}): ${response.status} ${response.statusText}`);
-            } catch (error) {
-                console.log(`Endpoint ${endpoint.url} (${endpoint.method}): ERROR - ${error.message}`);
-            }
-        }
-    }
-    
-    // Раскомментируйте для отладки:
-    // testApiEndpoints();
 });
