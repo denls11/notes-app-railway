@@ -223,6 +223,33 @@ app.get('/api/notes', async (req, res) => {
     }
 });
 
+// API: Получить заметку по ID
+app.get('/api/notes/:id', async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT 
+                id, 
+                title, 
+                content, 
+                tags,
+                is_important as important,
+                is_deleted as deleted,
+                created_at,
+                updated_at
+            FROM notes WHERE id = ?
+        `, [req.params.id]);
+        
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Заметка не найдена' });
+        }
+        
+        res.json(rows[0]);
+    } catch (error) {
+        console.error('Ошибка получения заметки:', error);
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
+});
+
 // API: Создать заметку (С АВТОМАТИЧЕСКИМ ИСПРАВЛЕНИЕМ ОШИБОК)
 app.post('/api/notes', async (req, res) => {
     console.log('📝 Запрос на создание заметки:', req.body);
@@ -344,6 +371,184 @@ app.post('/api/notes', async (req, res) => {
     }
 });
 
+// API: Обновить заметку
+app.put('/api/notes/:id', async (req, res) => {
+    console.log('✏️ Обновление заметки:', req.params.id, req.body);
+    
+    try {
+        const { title, content, tags = [], important = false } = req.body;
+        
+        if (!title || !content) {
+            return res.status(400).json({ error: 'Заголовок и текст обязательны' });
+        }
+        
+        await pool.execute(
+            'UPDATE notes SET title = ?, content = ?, tags = ?, is_important = ? WHERE id = ?',
+            [title, content, JSON.stringify(tags), important ? 1 : 0, req.params.id]
+        );
+        
+        console.log('✅ Заметка обновлена');
+        
+        // Получаем обновлённую заметку
+        const [rows] = await pool.query(`
+            SELECT 
+                id, 
+                title, 
+                content, 
+                tags,
+                is_important as important,
+                is_deleted as deleted,
+                created_at,
+                updated_at
+            FROM notes WHERE id = ?
+        `, [req.params.id]);
+        
+        res.json({
+            success: true,
+            note: rows[0],
+            message: 'Заметка обновлена'
+        });
+    } catch (error) {
+        console.error('❌ Ошибка обновления заметки:', error.message);
+        res.status(500).json({ error: 'Ошибка сервера', details: error.message });
+    }
+});
+
+// API: Удалить заметку (в корзину)
+app.delete('/api/notes/:id', async (req, res) => {
+    console.log('🗑️ Удаление заметки в корзину:', req.params.id);
+    
+    try {
+        await pool.execute(
+            'UPDATE notes SET is_deleted = 1 WHERE id = ?',
+            [req.params.id]
+        );
+        
+        console.log('✅ Заметка перемещена в корзину');
+        res.json({ 
+            success: true,
+            message: 'Заметка перемещена в корзину' 
+        });
+    } catch (error) {
+        console.error('❌ Ошибка удаления:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка сервера',
+            details: error.message 
+        });
+    }
+});
+
+// API: Восстановить из корзины
+app.patch('/api/notes/:id/restore', async (req, res) => {
+    console.log('♻️ Восстановление заметки:', req.params.id);
+    
+    try {
+        await pool.execute(
+            'UPDATE notes SET is_deleted = 0 WHERE id = ?',
+            [req.params.id]
+        );
+        
+        console.log('✅ Заметка восстановлена');
+        res.json({ 
+            success: true,
+            message: 'Заметка восстановлена' 
+        });
+    } catch (error) {
+        console.error('❌ Ошибка восстановления:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка сервера',
+            details: error.message 
+        });
+    }
+});
+
+// API: Изменить важность
+app.patch('/api/notes/:id/important', async (req, res) => {
+    console.log('⭐ Изменение важности:', req.params.id, req.body);
+    
+    try {
+        const { important } = req.body;
+        
+        if (typeof important !== 'boolean') {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Поле important должно быть boolean' 
+            });
+        }
+        
+        await pool.execute(
+            'UPDATE notes SET is_important = ? WHERE id = ?',
+            [important ? 1 : 0, req.params.id]
+        );
+        
+        console.log(`✅ Заметка отмечена как ${important ? 'важная' : 'не важная'}`);
+        res.json({ 
+            success: true,
+            message: `Заметка ${important ? 'важная' : 'не важная'}` 
+        });
+    } catch (error) {
+        console.error('❌ Ошибка изменения важности:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка сервера',
+            details: error.message 
+        });
+    }
+});
+
+// API: Получить корзину (удаленные заметки)
+app.get('/api/trash', async (req, res) => {
+    try {
+        if (!pool) {
+            return res.status(500).json({ error: 'База данных недоступна' });
+        }
+        
+        const [notes] = await pool.query(`
+            SELECT 
+                id, 
+                title, 
+                content, 
+                tags,
+                is_important as important,
+                is_deleted as deleted,
+                created_at,
+                updated_at
+            FROM notes 
+            WHERE is_deleted = 1 
+            ORDER BY updated_at DESC
+        `);
+        
+        res.json(notes);
+    } catch (error) {
+        console.error('❌ Ошибка получения корзины:', error.message);
+        res.status(500).json({ error: 'Ошибка сервера', details: error.message });
+    }
+});
+
+// API: Очистить корзину (удалить навсегда)
+app.delete('/api/trash/clear', async (req, res) => {
+    console.log('🔥 Очистка корзины');
+    
+    try {
+        await pool.execute('DELETE FROM notes WHERE is_deleted = 1');
+        
+        console.log('✅ Корзина очищена');
+        res.json({ 
+            success: true,
+            message: 'Корзина очищена' 
+        });
+    } catch (error) {
+        console.error('❌ Ошибка очистки корзины:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка сервера',
+            details: error.message 
+        });
+    }
+});
+
 // API: Принудительное исправление таблицы
 app.post('/api/fix-database', async (req, res) => {
     try {
@@ -420,34 +625,54 @@ app.get('/api/db-info', async (req, res) => {
     }
 });
 
-// API: Удалить заметку
-app.delete('/api/notes/:id', async (req, res) => {
+// API: Тест всех операций
+app.get('/api/test-operations/:id', async (req, res) => {
+    const noteId = req.params.id;
+    
     try {
-        await pool.execute('UPDATE notes SET is_deleted = 1 WHERE id = ?', [req.params.id]);
-        res.json({ message: 'Заметка перемещена в корзину' });
+        // 1. Получаем текущее состояние
+        const [note] = await pool.query('SELECT * FROM notes WHERE id = ?', [noteId]);
+        
+        if (note.length === 0) {
+            return res.json({ error: 'Заметка не найдена' });
+        }
+        
+        const currentNote = note[0];
+        
+        // 2. Тест изменения важности
+        const newImportant = currentNote.is_important === 0 ? 1 : 0;
+        await pool.query('UPDATE notes SET is_important = ? WHERE id = ?', [newImportant, noteId]);
+        
+        // 3. Тест удаления/восстановления
+        const newDeleted = currentNote.is_deleted === 0 ? 1 : 0;
+        await pool.query('UPDATE notes SET is_deleted = ? WHERE id = ?', [newDeleted, noteId]);
+        
+        // 4. Получаем обновлённую заметку
+        const [updatedNote] = await pool.query('SELECT * FROM notes WHERE id = ?', [noteId]);
+        
+        res.json({
+            success: true,
+            message: 'Тест операций выполнен',
+            original: {
+                important: currentNote.is_important,
+                deleted: currentNote.is_deleted
+            },
+            updated: {
+                important: updatedNote[0].is_important,
+                deleted: updatedNote[0].is_deleted
+            },
+            operations: {
+                important_toggled: newImportant !== currentNote.is_important,
+                deleted_toggled: newDeleted !== currentNote.is_deleted
+            }
+        });
+        
     } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// API: Восстановить заметку
-app.patch('/api/notes/:id/restore', async (req, res) => {
-    try {
-        await pool.execute('UPDATE notes SET is_deleted = 0 WHERE id = ?', [req.params.id]);
-        res.json({ message: 'Заметка восстановлена' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// API: Изменить важность
-app.patch('/api/notes/:id/important', async (req, res) => {
-    try {
-        const { important } = req.body;
-        await pool.execute('UPDATE notes SET is_important = ? WHERE id = ?', [important ? 1 : 0, req.params.id]);
-        res.json({ message: `Заметка ${important ? 'важная' : 'не важная'}` });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            sql: error.sql
+        });
     }
 });
 
@@ -460,6 +685,9 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
     console.log(`🚀 Сервер запущен на порту ${PORT}`);
     console.log(`📡 Ссылка: https://ваш-проект.railway.app`);
-    console.log(`🔧 Проверка БД: https://ваш-проект.railway.app/api/db-info`);
-    console.log(`🔧 Исправление БД: https://ваш-проект.railway.app/api/fix-database`);
+    console.log(`🔧 Проверка API:`);
+    console.log(`   • Все заметки: /api/notes`);
+    console.log(`   • Инфо о БД: /api/db-info`);
+    console.log(`   • Корзина: /api/trash`);
+    console.log(`   • Тест операций: /api/test-operations/1`);
 });
