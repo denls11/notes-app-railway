@@ -38,63 +38,90 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Загрузка заметок с сервера
     async function loadNotes() {
-        try {
-            showNotification('Загрузка заметок...', 'info');
+    console.log('🔄 Начало загрузки заметок...');
+    console.log('Текущий фильтр:', currentFilter);
+    console.log('Текущий поиск:', currentSearch);
+    
+    try {
+        showNotification('Загрузка заметок...', 'info');
+        
+        // Формируем URL с параметрами
+        let url = `${API_URL}/notes`;
+        const params = new URLSearchParams();
+        
+        // Добавляем фильтр только если он не 'all'
+        if (currentFilter && currentFilter !== 'all') {
+            params.append('filter', currentFilter);
+        }
+        
+        // Добавляем поиск если есть
+        if (currentSearch) {
+            params.append('search', currentSearch);
+        }
+        
+        // Добавляем сортировку если есть
+        if (currentSort) {
+            params.append('sort', currentSort);
+        }
+        
+        const queryString = params.toString();
+        if (queryString) {
+            url += `?${queryString}`;
+        }
+        
+        console.log('📡 Запрос к:', url);
+        
+        const startTime = Date.now();
+        const response = await fetch(url);
+        const endTime = Date.now();
+        
+        console.log(`⏱️ Запрос выполнен за ${endTime - startTime}ms`);
+        console.log('📊 Статус ответа:', response.status, response.statusText);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('❌ Ошибка HTTP:', errorText);
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log(`✅ Получено ${data.length} заметок`);
+        
+        // Конвертируем поля для совместимости
+        notes = data.map(note => {
+            // Проверяем оба варианта названия поля
+            const isImportant = note.is_important !== undefined 
+                ? note.is_important 
+                : note.important || false;
             
-            // Формируем URL с параметрами
-            let url = `${API_URL}/notes`;
-            const params = new URLSearchParams();
+            const isDeleted = note.is_deleted !== undefined 
+                ? note.is_deleted 
+                : note.deleted || false;
             
-            // Добавляем фильтр только если он не 'all'
-            if (currentFilter && currentFilter !== 'all') {
-                params.append('filter', currentFilter);
-            }
-            
-            // Добавляем поиск если есть
-            if (currentSearch) {
-                params.append('search', currentSearch);
-            }
-            
-            // Добавляем сортировку если есть
-            if (currentSort) {
-                params.append('sort', currentSort);
-            }
-            
-            const queryString = params.toString();
-            if (queryString) {
-                url += `?${queryString}`;
-            }
-            
-            const response = await fetch(url);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
-            // Конвертируем поля для совместимости
-            notes = data.map(note => {
-                // Проверяем оба варианта названия поля
-                const isImportant = note.is_important !== undefined 
-                    ? note.is_important 
-                    : note.important || false;
-                
-                const isDeleted = note.is_deleted !== undefined 
-                    ? note.is_deleted 
-                    : note.deleted || false;
-                
-                return {
-                    id: note.id,
-                    title: note.title,
-                    content: note.content,
-                    tags: note.tags || [],
-                    important: isImportant,
-                    deleted: isDeleted,
-                    createdAt: note.created_at || note.createdAt,
-                    updatedAt: note.updated_at || note.updatedAt
-                };
-            });
+            return {
+                id: note.id,
+                title: note.title,
+                content: note.content,
+                tags: note.tags || [],
+                important: isImportant,
+                deleted: isDeleted,
+                createdAt: note.created_at || note.createdAt,
+                updatedAt: note.updated_at || note.updatedAt
+            };
+        });
+        
+        console.log('📝 Конвертированные заметки:', notes);
+        renderNotes();
+        
+    } catch (error) {
+        console.error('❌ Ошибка при загрузке заметок:', error);
+        console.error('Стек ошибки:', error.stack);
+        showNotification('Не удалось загрузить заметки', 'error');
+        
+        // Fallback на localStorage, если сервер недоступен
+        loadNotesFromLocalStorage();
+    }
+}
             
             renderNotes();
         } catch (error) {
