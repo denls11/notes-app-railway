@@ -526,13 +526,16 @@ document.addEventListener('DOMContentLoaded', () => {
             method: 'DELETE'
         });
         
-        if (!response.ok) throw new Error('Ошибка очистки');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Ошибка очистки');
+        }
         
         showNotification('Все заметки удалены', 'success');
         await loadNotes();
     } catch (error) {
         console.error('Ошибка очистки:', error);
-        showNotification('Ошибка при очистке заметок', 'error');
+        showNotification(`Ошибка при очистке заметок: ${error.message}`, 'error');
     }
 }
     async function exportNotes() {
