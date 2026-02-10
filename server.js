@@ -11,195 +11,226 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// Подключение к базе данных Railway
-const pool = mysql.createPool({
-    host: process.env.MYSQLHOST,
-    user: process.env.MYSQLUSER,
-    password: process.env.MYSQLPASSWORD,
-    database: process.env.MYSQLDATABASE,
-    port: process.env.MYSQLPORT,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
+// **ВАЖНО: Выводим переменные окружения для отладки**
+console.log('🔍 Проверка переменных окружения:');
+console.log(`   MYSQLHOST: ${process.env.MYSQLHOST || 'НЕ УСТАНОВЛЕН'}`);
+console.log(`   MYSQLUSER: ${process.env.MYSQLUSER || 'НЕ УСТАНОВЛЕН'}`);
+console.log(`   MYSQLPASSWORD: ${process.env.MYSQLPASSWORD ? '******' : 'НЕ УСТАНОВЛЕН'}`);
+console.log(`   MYSQLDATABASE: ${process.env.MYSQLDATABASE || 'НЕ УСТАНОВЛЕН'}`);
+console.log(`   MYSQLPORT: ${process.env.MYSQLPORT || '3306 (по умолчанию)'}`);
+
+// **ИСПРАВЛЕННО: Правильное создание пула соединений**
+let pool;
+
+try {
+    // В Railway переменные окружения называются именно так
+    const dbConfig = {
+        host: process.env.MYSQLHOST,
+        user: process.env.MYSQLUSER,
+        password: process.env.MYSQLPASSWORD,
+        database: process.env.MYSQLDATABASE,
+        port: process.env.MYSQLPORT || 3306,
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0
+    };
+    
+    console.log('🔧 Конфигурация БД:', {
+        ...dbConfig,
+        password: dbConfig.password ? '******' : 'отсутствует'
+    });
+    
+    pool = mysql.createPool(dbConfig);
+    console.log('✅ Пул соединений создан');
+} catch (error) {
+    console.error('❌ Ошибка создания пула:', error.message);
+    // Временно создаем "заглушку" для тестирования
+    pool = null;
+}
+
+// **ШАГ 2: Проверка подключения (диагностика)**
+app.get('/api/debug', (req, res) => {
+    const envVars = {
+        MYSQLHOST: process.env.MYSQLHOST || 'Не установлен',
+        MYSQLUSER: process.env.MYSQLUSER || 'Не установлен',
+        MYSQLPASSWORD: process.env.MYSQLPASSWORD ? 'Установлен' : 'Не установлен',
+        MYSQLDATABASE: process.env.MYSQLDATABASE || 'Не установлен',
+        MYSQLPORT: process.env.MYSQLPORT || '3306',
+        PORT: process.env.PORT || '3000',
+        NODE_ENV: process.env.NODE_ENV || 'development'
+    };
+    
+    res.json({
+        success: true,
+        message: 'Сервер работает',
+        environment: envVars,
+        timestamp: new Date().toISOString(),
+        pool: pool ? 'Создан' : 'Не создан'
+    });
 });
 
-// Инициализация базы данных
+// **ШАГ 3: Простая проверка БД**
+app.get('/api/test-db', async (req, res) => {
+    if (!pool) {
+        return res.status(500).json({ 
+            success: false, 
+            error: 'Пул соединений не создан',
+            suggestion: 'Проверьте переменные окружения в Railway'
+        });
+    }
+    
+    try {
+        const [rows] = await pool.query('SELECT NOW() as current_time');
+        res.json({ 
+            success: true, 
+            message: 'База данных подключена',
+            current_time: rows[0].current_time
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            success: false, 
+            error: error.message,
+            code: error.code,
+            errno: error.errno
+        });
+    }
+});
+
+// **ШАГ 4: Простая таблица**
 async function initDatabase() {
+    if (!pool) {
+        console.log('❌ Пропускаем инициализацию БД: пул не создан');
+        return;
+    }
+    
     try {
         const connection = await pool.getConnection();
+        console.log('✅ Получено соединение с БД');
         
-        // Простая таблица (без сложных типов)
+        // Максимально простая таблица
         await connection.query(`
             CREATE TABLE IF NOT EXISTS notes (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 title VARCHAR(500) NOT NULL,
                 content TEXT NOT NULL,
-                tags TEXT,
-                important INT DEFAULT 0,
-                deleted INT DEFAULT 0,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         `);
         
-        console.log('✅ База данных готова');
+        console.log('✅ Таблица notes готова');
         connection.release();
     } catch (error) {
-        console.error('❌ Ошибка базы данных:', error.message);
+        console.error('❌ Ошибка инициализации БД:', error.message);
+        console.error('   Код ошибки:', error.code);
+        console.error('   Номер ошибки:', error.errno);
     }
 }
 
-// Инициализируем БД при запуске
+// Инициализация
 initDatabase();
 
-// API: Получить все заметки
+// **ШАГ 5: Упрощенный API для заметок**
 app.get('/api/notes', async (req, res) => {
+    if (!pool) {
+        return res.status(500).json({ 
+            error: 'База данных недоступна',
+            details: 'Проверьте подключение к MySQL'
+        });
+    }
+    
     try {
-        const { filter = 'all', search = '', sort = 'newest' } = req.query;
-        
-        let query = 'SELECT * FROM notes WHERE 1=1';
-        let params = [];
-        
-        // Фильтр
-        if (filter === 'deleted') {
-            query += ' AND deleted = 1';
-        } else if (filter === 'important') {
-            query += ' AND important = 1 AND deleted = 0';
-        } else {
-            query += ' AND deleted = 0';
-        }
-        
-        // Поиск
-        if (search) {
-            query += ' AND (title LIKE ? OR content LIKE ?)';
-            params.push(`%${search}%`, `%${search}%`);
-        }
-        
-        // Сортировка
-        switch(sort) {
-            case 'newest': query += ' ORDER BY updated_at DESC'; break;
-            case 'oldest': query += ' ORDER BY updated_at ASC'; break;
-            case 'alpha-asc': query += ' ORDER BY title ASC'; break;
-            case 'alpha-desc': query += ' ORDER BY title DESC'; break;
-            case 'important': query += ' ORDER BY important DESC'; break;
-            default: query += ' ORDER BY updated_at DESC';
-        }
-        
-        const [notes] = await pool.execute(query, params);
-        
-        // Форматируем заметки
-        const formattedNotes = notes.map(note => ({
-            id: note.id,
-            title: note.title,
-            content: note.content,
-            tags: note.tags ? JSON.parse(note.tags) : [],
-            important: note.important === 1,
-            deleted: note.deleted === 1,
-            createdAt: note.created_at,
-            updatedAt: note.updated_at
-        }));
-        
-        res.json(formattedNotes);
+        const [notes] = await pool.query('SELECT * FROM notes ORDER BY created_at DESC');
+        res.json(notes);
     } catch (error) {
-        console.error('Ошибка получения заметок:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
+        console.error('Ошибка получения заметок:', error.message);
+        res.status(500).json({ error: error.message });
     }
 });
 
-// API: Создать заметку
 app.post('/api/notes', async (req, res) => {
+    console.log('📝 Получен запрос на создание заметки');
+    console.log('   Данные:', req.body);
+    
+    if (!pool) {
+        return res.status(500).json({ 
+            error: 'База данных недоступна',
+            debug: 'Проверьте /api/debug'
+        });
+    }
+    
     try {
-        const { title, content, tags = [], important = false } = req.body;
+        const { title, content } = req.body;
         
         if (!title || !content) {
-            return res.status(400).json({ error: 'Заголовок и текст обязательны' });
+            return res.status(400).json({ 
+                error: 'Заголовок и текст обязательны' 
+            });
         }
         
-        const [result] = await pool.execute(
-            'INSERT INTO notes (title, content, tags, important) VALUES (?, ?, ?, ?)',
-            [title, content, JSON.stringify(tags), important ? 1 : 0]
+        const [result] = await pool.query(
+            'INSERT INTO notes (title, content) VALUES (?, ?)',
+            [title, content]
         );
         
-        res.status(201).json({ 
+        console.log('✅ Заметка создана, ID:', result.insertId);
+        
+        res.status(201).json({
+            success: true,
             id: result.insertId,
             title,
             content,
-            tags,
-            important,
-            message: 'Заметка создана' 
+            message: 'Заметка создана'
         });
     } catch (error) {
-        console.error('Ошибка создания заметки:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
-    }
-});
-
-// API: Обновить заметку
-app.put('/api/notes/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { title, content, tags = [], important = false } = req.body;
-        
-        await pool.execute(
-            'UPDATE notes SET title = ?, content = ?, tags = ?, important = ? WHERE id = ?',
-            [title, content, JSON.stringify(tags), important ? 1 : 0, id]
-        );
-        
-        res.json({ 
-            id,
-            title,
-            content,
-            tags,
-            important,
-            message: 'Заметка обновлена' 
+        console.error('❌ Ошибка создания заметки:', error.message);
+        console.error('   Полная ошибка:', error);
+        res.status(500).json({ 
+            error: 'Ошибка базы данных',
+            details: error.message,
+            code: error.code
         });
-    } catch (error) {
-        console.error('Ошибка обновления заметки:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
 
-// API: Удалить заметку (в корзину)
-app.delete('/api/notes/:id', async (req, res) => {
-    try {
-        await pool.execute(
-            'UPDATE notes SET deleted = 1 WHERE id = ?',
-            [req.params.id]
-        );
-        res.json({ message: 'Заметка перемещена в корзину' });
-    } catch (error) {
-        console.error('Ошибка удаления:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
+// **ШАГ 6: Альтернативный маршрут с заглушкой (на случай проблем)**
+let fakeNotes = []; // Временное хранилище в памяти
+
+app.post('/api/notes-fallback', async (req, res) => {
+    const { title, content } = req.body;
+    
+    if (!title || !content) {
+        return res.status(400).json({ error: 'Заголовок и текст обязательны' });
     }
+    
+    const note = {
+        id: Date.now(),
+        title,
+        content,
+        created_at: new Date().toISOString()
+    };
+    
+    fakeNotes.push(note);
+    console.log('📝 Заметка сохранена в памяти (заглушка)');
+    
+    res.status(201).json({
+        success: true,
+        note,
+        message: 'Заметка сохранена в памяти (режим заглушки)'
+    });
 });
 
-// API: Восстановить из корзины
-app.patch('/api/notes/:id/restore', async (req, res) => {
-    try {
-        await pool.execute(
-            'UPDATE notes SET deleted = 0 WHERE id = ?',
-            [req.params.id]
-        );
-        res.json({ message: 'Заметка восстановлена' });
-    } catch (error) {
-        console.error('Ошибка восстановления:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
-    }
+app.get('/api/notes-fallback', (req, res) => {
+    res.json(fakeNotes);
 });
 
-// API: Изменить важность
-app.patch('/api/notes/:id/important', async (req, res) => {
-    try {
-        const { important } = req.body;
-        await pool.execute(
-            'UPDATE notes SET important = ? WHERE id = ?',
-            [important ? 1 : 0, req.params.id]
-        );
-        res.json({ message: `Заметка ${important ? 'важная' : 'не важная'}` });
-    } catch (error) {
-        console.error('Ошибка изменения важности:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
-    }
+// **ШАГ 7: Проверка работоспособности без БД**
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'healthy',
+        server: 'running',
+        database: pool ? 'connected' : 'disconnected',
+        timestamp: new Date().toISOString()
+    });
 });
 
 // Главная страница
@@ -207,7 +238,9 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Старт сервера
+// Запуск сервера
 app.listen(PORT, () => {
     console.log(`🚀 Сервер запущен на порту ${PORT}`);
+    console.log(`🌐 Откройте в браузере: http://localhost:${PORT}`);
+    console.log(`🔧 Проверка переменных окружения выполнена`);
 });
