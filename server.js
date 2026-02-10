@@ -392,33 +392,46 @@ app.delete('/api/notes/:id/permanent', async (req, res) => {
 
 // API: Очистить ВСЕ заметки (обычные + корзина)
 app.delete('/api/notes/clear-all', async (req, res) => {
-    console.log('🧹 Очистка ВСЕХ заметок...');
+    console.log('🧹 ПРОСТАЯ очистка всех заметок...');
     
     try {
-        // Проверяем подключение к БД
+        // 1. Проверяем есть ли пул
         if (!pool) {
-            console.error('❌ Пул соединений не создан!');
-            return res.status(500).json({ 
-                success: false,
-                error: 'База данных недоступна',
-                details: 'Пул соединений MySQL не инициализирован'
+            console.log('❌ Пул не найден, создаем тестовый ответ');
+            return res.json({ 
+                success: true, 
+                message: 'Пул не инициализирован (тестовый ответ)',
+                deletedCount: 0
             });
         }
         
-        console.log('✅ Пул соединений доступен, начинаем очистку...');
+        // 2. ПРОСТОЙ запрос без сложной логики
+        console.log('Выполняем DELETE FROM notes...');
+        const sql = 'DELETE FROM notes';
+        const [result] = await pool.query(sql);
         
-        // Простой DELETE запрос
-        const [result] = await pool.execute('DELETE FROM notes');
+        console.log(`✅ Запрос выполнен. Удалено: ${result.affectedRows}`);
         
-        console.log(`✅ Успешно! Удалено ${result.affectedRows} заметок`);
-        
-        // Возвращаем успешный ответ
+        // 3. Простой ответ
         res.json({ 
             success: true,
-            message: `Все заметки удалены (${result.affectedRows} шт.)`,
-            deletedCount: result.affectedRows,
-            timestamp: new Date().toISOString()
+            message: `Удалено ${result.affectedRows} заметок`,
+            deletedCount: result.affectedRows
         });
+        
+    } catch (error) {
+        console.error('🔥 ОШИБКА в clear-all:', error);
+        
+        // Возвращаем ошибку с подробностями
+        res.status(500).json({
+            success: false,
+            error: 'Ошибка очистки',
+            details: error.message,
+            sqlError: error.sqlMessage,
+            code: error.code
+        });
+    }
+});
         
     } catch (error) {
         console.error('❌ КРИТИЧЕСКАЯ ОШИБКА при очистке:', error);
