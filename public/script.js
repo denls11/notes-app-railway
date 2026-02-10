@@ -521,17 +521,132 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function clearAllNotes() {
         try {
-            const response = await fetch(`${API_URL}/notes?confirm=true`, {
-                method: 'DELETE'
-            });
+            console.log('Попытка очистки всех заметок...');
             
-            if (!response.ok) throw new Error('Ошибка очистки');
+            // Пробуем разные варианты endpoint'ов
+            const endpoints = [
+                `${API_URL}/notes/clear-all?confirm=true`,
+                `${API_URL}/notes/clear-all`,
+                `${API_URL}/notes?clearAll=true&confirm=true`,
+                `${API_URL}/notes?confirm=true`,
+                `${API_URL}/notes?deleteAll=true`,
+                `${API_URL}/notes/all`
+            ];
             
-            showNotification('Все заметки удалены', 'success');
-            await loadNotes();
+            let success = false;
+            let successfulEndpoint = '';
+            
+            for (const endpoint of endpoints) {
+                try {
+                    console.log(`Пробуем endpoint: ${endpoint}`);
+                    const response = await fetch(endpoint, {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    
+                    console.log(`Ответ от ${endpoint}: ${response.status} ${response.statusText}`);
+                    
+                    if (response.ok) {
+                        console.log(`Успех с endpoint: ${endpoint}`);
+                        success = true;
+                        successfulEndpoint = endpoint;
+                        break;
+                    }
+                } catch (error) {
+                    console.log(`Endpoint ${endpoint} не сработал:`, error.message);
+                    continue;
+                }
+            }
+            
+            if (success) {
+                showNotification('Все заметки удалены', 'success');
+                
+                // Обновляем UI немедленно
+                notes = [];
+                renderNotes();
+                
+                // Перезагружаем для синхронизации
+                setTimeout(() => {
+                    loadNotes();
+                }, 1000);
+                
+                return;
+            } else {
+                // Если ни один endpoint не сработал, пробуем удалить по одной
+                console.log('Ни один endpoint массового удаления не сработал, пробуем удалить по одной...');
+                await deleteAllNotesOneByOne();
+            }
+            
         } catch (error) {
-            console.error('Ошибка очистки:', error);
-            showNotification('Ошибка при очистке заметок', 'error');
+            console.error('Ошибка очистки всех заметок:', error);
+            showNotification('Не удалось удалить все заметки. Попробуйте удалить их по одной.', 'error');
+        }
+    }
+
+    async function deleteAllNotesOneByOne() {
+        try {
+            showNotification('Начинаю удаление всех заметок по одной...', 'info');
+            
+            // Получаем все заметки
+            const response = await fetch(`${API_URL}/notes`);
+            const allNotes = await response.json();
+            
+            if (!Array.isArray(allNotes) || allNotes.length === 0) {
+                showNotification('Нет заметок для удаления', 'info');
+                return;
+            }
+            
+            let deletedCount = 0;
+            const totalNotes = allNotes.length;
+            
+            showNotification(`Найдено ${totalNotes} заметок для удаления...`, 'info');
+            
+            for (const note of allNotes) {
+                try {
+                    // Пробуем удалить навсегда
+                    const deleteResponse = await fetch(`${API_URL}/notes/${note.id}/permanent`, {
+                        method: 'DELETE'
+                    });
+                    
+                    if (deleteResponse.ok) {
+                        deletedCount++;
+                        console.log(`Удалена заметка ${note.id} (${deletedCount}/${totalNotes})`);
+                    } else {
+                        // Пробуем обычное удаление
+                        await fetch(`${API_URL}/notes/${note.id}`, {
+                            method: 'DELETE'
+                        });
+                        deletedCount++;
+                        console.log(`Удалена заметка ${note.id} (${deletedCount}/${totalNotes})`);
+                    }
+                    
+                    // Обновляем прогресс каждые 5 заметок
+                    if (deletedCount % 5 === 0) {
+                        showNotification(`Удалено ${deletedCount}/${totalNotes} заметок...`, 'info');
+                    }
+                    
+                    // Небольшая задержка чтобы не перегружать сервер
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    
+                } catch (noteError) {
+                    console.error(`Ошибка удаления заметки ${note.id}:`, noteError);
+                }
+            }
+            
+            showNotification(`Успешно удалено ${deletedCount} заметок из ${totalNotes}`, 'success');
+            
+            // Обновляем UI
+            notes = [];
+            renderNotes();
+            
+            // Перезагружаем для синхронизации
+            setTimeout(() => {
+                loadNotes();
+            }, 1000);
+            
+        } catch (error) {
+            console.error('Ошибка удаления по одной:', error);
+            throw error;
         }
     }
 
@@ -709,9 +824,10 @@ document.addEventListener('DOMContentLoaded', () => {
             clearAllModal.classList.add('active');
         });
         
-        confirmClearAllBtn.addEventListener('click', () => {
-            clearAllNotes();
+        confirmClearAllBtn.addEventListener('click', async () => {
             clearAllModal.classList.remove('active');
+            showNotification('Начинаю удаление всех заметок...', 'info');
+            await clearAllNotes();
         });
         
         cancelClearAllBtn.addEventListener('click', () => {
@@ -773,4 +889,32 @@ document.addEventListener('DOMContentLoaded', () => {
             ? '<i class="fas fa-sun"></i> Тема' 
             : '<i class="fas fa-moon"></i> Тема';
     }
+    
+    // Функция для тестирования endpoint'ов API (можно раскомментировать для отладки)
+    async function testApiEndpoints() {
+        console.log('Тестирование доступных endpointов API...');
+        
+        const endpointsToTest = [
+            { url: `${API_URL}/notes`, method: 'GET' },
+            { url: `${API_URL}/notes/clear-all`, method: 'DELETE' },
+            { url: `${API_URL}/notes?clearAll=true`, method: 'DELETE' },
+            { url: `${API_URL}/notes?confirm=true`, method: 'DELETE' },
+            { url: `${API_URL}/notes/all`, method: 'DELETE' }
+        ];
+        
+        for (const endpoint of endpointsToTest) {
+            try {
+                const response = await fetch(endpoint.url, {
+                    method: endpoint.method,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                console.log(`Endpoint ${endpoint.url} (${endpoint.method}): ${response.status} ${response.statusText}`);
+            } catch (error) {
+                console.log(`Endpoint ${endpoint.url} (${endpoint.method}): ERROR - ${error.message}`);
+            }
+        }
+    }
+    
+    // Раскомментируйте для отладки:
+    // testApiEndpoints();
 });
