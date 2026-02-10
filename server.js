@@ -367,6 +367,29 @@ app.delete('/api/notes/:id', async (req, res) => {
     }
 });
 
+// API: Удалить заметку навсегда
+app.delete('/api/notes/:id/permanent', async (req, res) => {
+    console.log('🔥 Удаление заметки навсегда:', req.params.id);
+    
+    try {
+        await pool.execute('DELETE FROM notes WHERE id = ?', [req.params.id]);
+        
+        console.log('✅ Заметка удалена навсегда');
+        
+        res.json({ 
+            success: true,
+            message: 'Заметка удалена навсегда' 
+        });
+    } catch (error) {
+        console.error('❌ Ошибка удаления:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка сервера',
+            details: error.message 
+        });
+    }
+});
+
 // API: Восстановить заметку из корзины
 app.patch('/api/notes/:id/restore', async (req, res) => {
     console.log('♻️ Восстановление заметки:', req.params.id);
@@ -385,6 +408,29 @@ app.patch('/api/notes/:id/restore', async (req, res) => {
         });
     } catch (error) {
         console.error('❌ Ошибка восстановления:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка сервера',
+            details: error.message 
+        });
+    }
+});
+
+// API: Очистить ВСЕ заметки (обычные + корзина)
+app.delete('/api/notes/clear-all', async (req, res) => {
+    console.log('🔥🔥 Очистка ВСЕХ заметок');
+    
+    try {
+        await pool.execute('DELETE FROM notes');
+        
+        console.log('✅ Все заметки удалены');
+        
+        res.json({ 
+            success: true,
+            message: 'Все заметки удалены' 
+        });
+    } catch (error) {
+        console.error('❌ Ошибка очистки:', error.message);
         res.status(500).json({ 
             success: false,
             error: 'Ошибка сервера',
@@ -570,5 +616,8 @@ app.listen(PORT, () => {
     console.log(`   • PUT    /api/notes/:id      - обновить заметку`);
     console.log(`   • PATCH  /api/notes/:id/important - изменить важность`);
     console.log(`   • DELETE /api/notes/:id      - удалить в корзину`);
+    console.log(`   • DELETE /api/notes/:id/permanent - удалить навсегда`);
     console.log(`   • PATCH  /api/notes/:id/restore - восстановить`);
+    console.log(`   • DELETE /api/notes/clear-all - очистить всё`);
+    console.log(`   • DELETE /api/trash/clear    - очистить корзину`);
 });
