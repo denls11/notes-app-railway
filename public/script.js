@@ -41,23 +41,17 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             showNotification('Загрузка заметок...', 'info');
             
-            console.log('Загрузка с фильтром:', currentFilter);
-            
-            // Формируем URL с параметрами
             let url = `${API_URL}/notes`;
             const params = new URLSearchParams();
             
-            // Добавляем фильтр только если он не 'all'
             if (currentFilter && currentFilter !== 'all') {
                 params.append('filter', currentFilter);
             }
             
-            // Добавляем поиск если есть
             if (currentSearch) {
                 params.append('search', currentSearch);
             }
             
-            // Добавляем сортировку если есть
             if (currentSort) {
                 params.append('sort', currentSort);
             }
@@ -67,8 +61,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 url += `?${queryString}`;
             }
             
-            console.log('Запрос к:', url);
-            
             const response = await fetch(url);
             
             if (!response.ok) {
@@ -76,43 +68,28 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             const data = await response.json();
-            console.log('Получены данные:', data);
             
-            // Конвертируем поля для совместимости
             notes = data.map(note => ({
-                id: note.id,
+                id: note._id || note.id,
                 title: note.title,
                 content: note.content,
                 tags: note.tags || [],
-                important: note.is_important || note.important || false,
-                deleted: note.is_deleted || note.deleted || false,
+                important: note.is_important || false,
+                deleted: note.is_deleted || false,
                 createdAt: note.created_at || note.createdAt,
                 updatedAt: note.updated_at || note.updatedAt
             }));
             
-            console.log('Конвертированные заметки:', notes);
             renderNotes();
         } catch (error) {
             console.error('Ошибка при загрузке заметок:', error);
             showNotification('Не удалось загрузить заметки', 'error');
-            // Fallback на localStorage, если сервер недоступен
-            loadNotesFromLocalStorage();
-        }
-    }
-
-    function loadNotesFromLocalStorage() {
-        const savedNotes = localStorage.getItem('notes');
-        if (savedNotes) {
-            notes = JSON.parse(savedNotes);
-            renderNotes();
-            showNotification('Используются локальные данные', 'info');
         }
     }
 
     function renderNotes() {
         notesContainer.innerHTML = '';
         
-        // Фильтруем на клиенте только если нужно (для поиска)
         let filteredNotes = [...notes];
         
         if (currentSearch) {
@@ -143,7 +120,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        // Применяем сортировку
         if (currentSort) {
             filteredNotes.sort((a, b) => {
                 switch (currentSort) {
@@ -171,7 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function createNoteElement(note) {
         const noteDiv = document.createElement('div');
-        noteDiv.className = `note ${note.important ? 'important' : ''} ${note.deleted ? 'deleted' : ''} ${selectedNoteId === note.id ? 'active' : ''}`;
+        noteDiv.className = `note ${note.important ? 'important' : ''} ${note.deleted ? 'deleted' : ''}`;
         noteDiv.dataset.id = note.id;
         
         const date = new Date(note.updatedAt);
@@ -207,7 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <button class="note-btn important-btn" title="${note.important ? 'Снять важность' : 'Пометить важной'}">
                         <i class="${note.important ? 'fas fa-star' : 'far fa-star'}"></i>
                     </button>
-                    <button class="note-btn delete" title="Удалить">
+                    <button class="note-btn delete" title="Удалить в корзину">
                         <i class="fas fa-trash"></i>
                     </button>
                 ` : `
@@ -220,20 +196,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 `}
             </div>
         `;
-        
-        // Обработчики событий
-        noteDiv.addEventListener('click', (e) => {
-            if (!e.target.closest('.note-actions')) {
-                if (selectedNoteId === note.id) {
-                    selectedNoteId = null;
-                    noteDiv.classList.remove('active');
-                } else {
-                    selectedNoteId = note.id;
-                    document.querySelectorAll('.note').forEach(n => n.classList.remove('active'));
-                    noteDiv.classList.add('active');
-                }
-            }
-        });
         
         const editBtn = noteDiv.querySelector('.edit');
         const importantBtn = noteDiv.querySelector('.important-btn');
@@ -248,12 +210,12 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (importantBtn) importantBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            toggleImportant(note.id, importantBtn);
+            toggleImportant(note.id);
         });
         
         if (deleteBtn) deleteBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            showConfirmModal('Вы уверены, что хотите переместить эту заметку в корзину?', () => {
+            showConfirmModal('Переместить заметку в корзину?', () => {
                 deleteNote(note.id);
             });
         });
@@ -265,7 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (deletePermanentBtn) deletePermanentBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            showConfirmModal('Вы уверены, что хотите удалить эту заметку НАВСЕГДА? Это действие необратимо!', () => {
+            showConfirmModal('УДАЛИТЬ ЗАМЕТКУ НАВСЕГДА? Это действие необратимо!', () => {
                 deleteNotePermanently(note.id);
             });
         });
@@ -291,13 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
             noteTitle.value = note.title;
             noteText.value = note.content;
             noteTags.value = note.tags ? note.tags.join(', ') : '';
-            
-            // Используем правильное поле для важности
-            const isImportant = note.is_important !== undefined 
-                ? note.is_important 
-                : note.important || false;
-            noteImportant.checked = isImportant;
-            
+            noteImportant.checked = note.is_important || false;
             noteModal.classList.add('active');
             noteTitle.focus();
         } catch (error) {
@@ -319,7 +275,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         try {
-            // Подготавливаем данные в формате, который ожидает сервер
             const noteData = {
                 title,
                 content,
@@ -328,7 +283,6 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             
             if (currentNoteId) {
-                // Обновление существующей заметки
                 const response = await fetch(`${API_URL}/notes/${currentNoteId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -336,10 +290,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 
                 if (!response.ok) throw new Error('Ошибка обновления');
-                
                 showNotification('Заметка обновлена', 'success');
             } else {
-                // Создание новой заметки
                 const response = await fetch(`${API_URL}/notes`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -347,7 +299,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 
                 if (!response.ok) throw new Error('Ошибка создания');
-                
                 showNotification('Заметка создана', 'success');
             }
             
@@ -361,20 +312,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function deleteNote(id) {
         try {
-            console.log(`Перемещение заметки ${id} в корзину...`);
-            
             const response = await fetch(`${API_URL}/notes/${id}`, {
                 method: 'DELETE'
             });
             
-            if (!response.ok) {
-                // Пробуем альтернативный endpoint
-                const altResponse = await fetch(`${API_URL}/notes/${id}/trash`, {
-                    method: 'PUT'
-                });
-                
-                if (!altResponse.ok) throw new Error('Ошибка удаления');
-            }
+            if (!response.ok) throw new Error('Ошибка удаления');
             
             showNotification('Заметка перемещена в корзину', 'info');
             await loadNotes();
@@ -386,68 +328,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function deleteNotePermanently(id) {
         try {
-            console.log(`Попытка удалить заметку ${id} навсегда...`);
+            console.log(`Полное удаление заметки ${id}...`);
             
-            // Пробуем разные варианты endpoint'ов для постоянного удаления
-            const endpoints = [
-                `${API_URL}/notes/${id}/hard`,
-                `${API_URL}/notes/${id}/force`,
-                `${API_URL}/notes/${id}/permanent`,
-                `${API_URL}/notes/${id}?hard=true`,
-                `${API_URL}/notes/${id}?force=true`,
-                `${API_URL}/notes/${id}?permanent=true`
-            ];
+            const response = await fetch(`${API_URL}/notes/${id}/permanent`, {
+                method: 'DELETE'
+            });
             
-            let success = false;
-            let responseData = null;
-            
-            for (const endpoint of endpoints) {
-                try {
-                    console.log(`Пробуем endpoint: ${endpoint}`);
-                    const response = await fetch(endpoint, {
-                        method: 'DELETE'
-                    });
-                    
-                    console.log(`Ответ: ${response.status}`);
-                    
-                    if (response.ok) {
-                        success = true;
-                        responseData = await response.json();
-                        console.log(`Успешно удалено через ${endpoint}`, responseData);
-                        break;
-                    }
-                } catch (error) {
-                    console.log(`Endpoint ${endpoint} не сработал:`, error.message);
-                    continue;
-                }
+            if (!response.ok) {
+                throw new Error(`Ошибка: ${response.status} ${response.statusText}`);
             }
             
-            if (!success) {
-                // Если endpoint'ы постоянного удаления не работают,
-                // просто удаляем из отображения (серверное удаление недоступно)
-                console.log('Hard delete недоступен, удаляем локально');
-                notes = notes.filter(note => note.id !== id);
-                renderNotes();
-                showNotification('Заметка удалена из отображения', 'info');
-                return;
-            }
+            const result = await response.json();
+            console.log('Результат удаления:', result);
             
-            // Если удалось hard delete
-            if (success) {
-                showNotification('Заметка удалена навсегда', 'success');
-                
-                // Обновляем отображение
-                notes = notes.filter(note => note.id !== id);
-                renderNotes();
-                
-                // Если мы в корзине, перезагружаем данные
-                if (currentFilter === 'deleted') {
-                    setTimeout(() => loadNotes(), 500);
-                }
-            }
+            showNotification('Заметка полностью удалена из базы данных', 'success');
+            
+            // Удаляем из локального массива
+            notes = notes.filter(note => note.id !== id);
+            renderNotes();
             
         } catch (error) {
-            console.error('Ошибка удаления:', error);
+            console.error('Ошибка полного удаления:', error);
             showNotification('Ошибка при удалении заметки', 'error');
         }
     }
@@ -458,16 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 method: 'PATCH'
             });
             
-            if (!response.ok) {
-                // Пробуем альтернативный endpoint
-                const altResponse = await fetch(`${API_URL}/notes/${id}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ is_deleted: false })
-                });
-                
-                if (!altResponse.ok) throw new Error('Ошибка восстановления');
-            }
+            if (!response.ok) throw new Error('Ошибка восстановления');
             
             showNotification('Заметка восстановлена', 'success');
             await loadNotes();
@@ -477,92 +369,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function toggleImportant(id, buttonElement = null) {
+    async function toggleImportant(id) {
         try {
             const note = notes.find(n => n.id === id);
             if (!note) return;
             
             const newImportantStatus = !note.important;
-            console.log(`Изменение важности заметки ${id} на:`, newImportantStatus);
             
-            // Пробуем разные варианты endpoint'ов и форматов данных
-            let response;
+            const response = await fetch(`${API_URL}/notes/${id}/important`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ important: newImportantStatus })
+            });
             
-            // Вариант 1: Специальный endpoint для важности
-            try {
-                response = await fetch(`${API_URL}/notes/${id}/important`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        is_important: newImportantStatus,
-                        important: newImportantStatus 
-                    })
-                });
-                
-                if (!response.ok) throw new Error('Endpoint /important не сработал');
-            } catch (error1) {
-                console.log('Пробуем вариант 2:', error1);
-                
-                // Вариант 2: Обновление через основной endpoint
-                response = await fetch(`${API_URL}/notes/${id}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        is_important: newImportantStatus 
-                    })
-                });
-                
-                if (!response.ok) {
-                    // Вариант 3: Пробуем PUT
-                    response = await fetch(`${API_URL}/notes/${id}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            ...note,
-                            is_important: newImportantStatus 
-                        })
-                    });
-                    
-                    if (!response.ok) throw new Error('Все варианты не сработали');
-                }
-            }
-            
-            // Обновляем локальное состояние
-            note.important = newImportantStatus;
-            
-            // Обновляем UI кнопки
-            if (buttonElement) {
-                const icon = buttonElement.querySelector('i');
-                const title = buttonElement.getAttribute('title');
-                
-                if (newImportantStatus) {
-                    icon.className = 'fas fa-star';
-                    buttonElement.setAttribute('title', 'Снять важность');
-                } else {
-                    icon.className = 'far fa-star';
-                    buttonElement.setAttribute('title', 'Пометить важной');
-                }
-            }
-            
-            // Обновляем отображение заметки
-            const noteElement = document.querySelector(`.note[data-id="${id}"]`);
-            if (noteElement) {
-                if (newImportantStatus) {
-                    noteElement.classList.add('important');
-                    const titleElement = noteElement.querySelector('.note-title');
-                    if (!titleElement.querySelector('.note-important')) {
-                        const starIcon = document.createElement('i');
-                        starIcon.className = 'fas fa-star note-important';
-                        titleElement.insertBefore(starIcon, titleElement.firstChild);
-                    }
-                } else {
-                    noteElement.classList.remove('important');
-                    const starIcon = noteElement.querySelector('.note-title .note-important');
-                    if (starIcon) {
-                        starIcon.remove();
-                    }
-                }
-            }
+            if (!response.ok) throw new Error('Ошибка обновления');
             
             showNotification(
                 newImportantStatus 
@@ -571,7 +391,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 'info'
             );
             
-            // Перезагружаем заметки для синхронизации
             await loadNotes();
             
         } catch (error) {
@@ -582,142 +401,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function clearAllNotes() {
         try {
-            // Получаем все заметки (включая удаленные)
-            const allNotesResponse = await fetch(`${API_URL}/notes?filter=all`);
-            const allNotes = await allNotesResponse.json();
-            
-            if (!Array.isArray(allNotes) || allNotes.length === 0) {
-                showNotification('Нет заметок для удаления', 'info');
-                return;
-            }
-            
-            // Фильтруем только НЕ удаленные заметки
-            const activeNotes = allNotes.filter(note => 
-                !(note.is_deleted || note.deleted)
-            );
-            
-            if (activeNotes.length === 0) {
-                showNotification('Нет активных заметок для удаления', 'info');
-                return;
-            }
-            
-            const totalNotes = activeNotes.length;
-            
-            // Спрашиваем подтверждение
-            showConfirmModal(`Вы уверены, что хотите переместить ${totalNotes} заметок в корзину?`, async () => {
-                showNotification(`Перемещаю ${totalNotes} заметок в корзину...`, 'info');
-                
-                let movedToTrashCount = 0;
-                
-                // Перемещаем каждую заметку в корзину
-                for (const note of activeNotes) {
-                    try {
-                        const response = await fetch(`${API_URL}/notes/${note.id}`, {
-                            method: 'DELETE'
-                        });
-                        
-                        if (response.ok) {
-                            movedToTrashCount++;
-                            
-                            // Обновляем прогресс
-                            if (movedToTrashCount % 5 === 0 || movedToTrashCount === totalNotes) {
-                                showNotification(`Перемещено ${movedToTrashCount}/${totalNotes} заметок...`, 'info');
-                            }
-                        }
-                        
-                        // Небольшая задержка
-                        await new Promise(resolve => setTimeout(resolve, 100));
-                        
-                    } catch (error) {
-                        console.error(`Ошибка при удалении заметки ${note.id}:`, error);
-                    }
-                }
-                
-                showNotification(`${movedToTrashCount} заметок перемещено в корзину`, 'success');
-                
-                // Обновляем отображение
-                await loadNotes();
+            const response = await fetch(`${API_URL}/notes?confirm=true`, {
+                method: 'DELETE'
             });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Ошибка очистки');
+            }
+            
+            const result = await response.json();
+            showNotification(`Все заметки удалены (${result.deletedCount} шт.)`, 'success');
+            
+            // Очищаем локальный массив
+            notes = [];
+            renderNotes();
             
         } catch (error) {
             console.error('Ошибка очистки всех заметок:', error);
-            showNotification('Ошибка при удалении заметок', 'error');
+            showNotification(error.message || 'Ошибка при удалении заметок', 'error');
         }
     }
 
-    // Функция для полной очистки корзины
     async function emptyTrash() {
         try {
-            // Получаем только удаленные заметки
-            const deletedNotesResponse = await fetch(`${API_URL}/notes?filter=deleted`);
-            const deletedNotes = await deletedNotesResponse.json();
-            
-            if (!Array.isArray(deletedNotes) || deletedNotes.length === 0) {
-                showNotification('Корзина пуста', 'info');
-                return;
-            }
-            
-            const totalNotes = deletedNotes.length;
-            
-            showConfirmModal(`Вы уверены, что хотите навсегда удалить ${totalNotes} заметок из корзины? Это действие необратимо!`, async () => {
-                showNotification(`Начинаю удаление ${totalNotes} заметок из корзины...`, 'info');
-                
-                let permanentlyDeletedCount = 0;
-                
-                // Удаляем каждую заметку навсегда
-                for (const note of deletedNotes) {
-                    try {
-                        // Пробуем разные endpoint'ы для постоянного удаления
-                        let deleted = false;
-                        const endpoints = [
-                            `${API_URL}/notes/${note.id}/hard`,
-                            `${API_URL}/notes/${note.id}/force`,
-                            `${API_URL}/notes/${note.id}/permanent`,
-                            `${API_URL}/notes/${note.id}?hard=true`,
-                            `${API_URL}/notes/${note.id}?force=true`
-                        ];
-                        
-                        for (const endpoint of endpoints) {
-                            try {
-                                const response = await fetch(endpoint, {
-                                    method: 'DELETE'
-                                });
-                                
-                                if (response.ok) {
-                                    permanentlyDeletedCount++;
-                                    deleted = true;
-                                    console.log(`Удалена заметка ${note.id}`);
-                                    break;
-                                }
-                            } catch (error) {
-                                continue;
-                            }
-                        }
-                        
-                        // Если hard delete не работает, хотя бы удалим из отображения
-                        if (!deleted) {
-                            permanentlyDeletedCount++;
-                            console.log(`Заметка ${note.id} удалена локально (hard delete недоступен)`);
-                        }
-                        
-                        // Обновляем прогресс
-                        if (permanentlyDeletedCount % 3 === 0 || permanentlyDeletedCount === totalNotes) {
-                            showNotification(`Удалено ${permanentlyDeletedCount}/${totalNotes} заметок...`, 'info');
-                        }
-                        
-                        // Небольшая задержка
-                        await new Promise(resolve => setTimeout(resolve, 150));
-                        
-                    } catch (error) {
-                        console.error(`Ошибка при удалении заметки ${note.id}:`, error);
-                    }
-                }
-                
-                showNotification(`${permanentlyDeletedCount} заметок удалено из корзины`, 'success');
-                
-                // Обновляем отображение
-                await loadNotes();
+            const response = await fetch(`${API_URL}/notes/trash/empty`, {
+                method: 'DELETE'
             });
+            
+            if (!response.ok) throw new Error('Ошибка очистки корзины');
+            
+            const result = await response.json();
+            showNotification(`Корзина очищена (${result.deletedCount} заметок)`, 'success');
+            
+            // Обновляем отображение
+            await loadNotes();
             
         } catch (error) {
             console.error('Ошибка очистки корзины:', error);
@@ -765,18 +483,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 for (const note of importedNotes) {
-                    const isImportant = note.is_important !== undefined 
-                        ? note.is_important 
-                        : note.important || false;
-                    
                     await fetch(`${API_URL}/notes`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            title: note.title || note.Title,
-                            content: note.content || note.Content,
-                            tags: note.tags || note.Tags || [],
-                            is_important: isImportant
+                            title: note.title,
+                            content: note.content,
+                            tags: note.tags || [],
+                            is_important: note.is_important || false
                         })
                     });
                 }
@@ -855,25 +569,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function setupEventListeners() {
         newNoteBtn.addEventListener('click', openNewNoteModal);
-        
         closeModal.addEventListener('click', () => noteModal.classList.remove('active'));
         cancelBtn.addEventListener('click', () => noteModal.classList.remove('active'));
         
         noteForm.addEventListener('submit', saveNote);
+        saveBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            saveNote(e);
+        });
         
         searchInput.addEventListener('input', (e) => {
             currentSearch = e.target.value;
             renderNotes();
-        });
-
-        noteForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            saveNote(e);
-        });
-
-        saveBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            saveNote(e);
         });
         
         sortSelect.addEventListener('change', (e) => {
@@ -886,9 +593,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 filterBtns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentFilter = btn.dataset.filter;
-                console.log('Изменен фильтр на:', currentFilter);
                 
-                // При переходе в корзину показываем дополнительную кнопку "Очистить корзину"
+                // Показываем кнопку "Очистить корзину" только в корзине
                 if (currentFilter === 'deleted') {
                     addEmptyTrashButton();
                 } else {
@@ -900,7 +606,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         exportBtn.addEventListener('click', exportNotes);
-        
         importBtn.addEventListener('click', importNotes);
         
         clearAllBtn.addEventListener('click', () => {
@@ -972,9 +677,7 @@ document.addEventListener('DOMContentLoaded', () => {
             : '<i class="fas fa-moon"></i> Тема';
     }
     
-    // Функция для добавления кнопки "Очистить корзину"
     function addEmptyTrashButton() {
-        // Проверяем, не добавлена ли уже кнопка
         if (document.getElementById('emptyTrashBtn')) return;
         
         const emptyTrashBtn = document.createElement('button');
@@ -982,13 +685,15 @@ document.addEventListener('DOMContentLoaded', () => {
         emptyTrashBtn.className = 'trash-btn';
         emptyTrashBtn.innerHTML = '<i class="fas fa-broom"></i> Очистить корзину';
         
-        // Вставляем после кнопки "Импорт"
         importBtn.parentNode.insertBefore(emptyTrashBtn, clearAllBtn);
         
-        emptyTrashBtn.addEventListener('click', emptyTrash);
+        emptyTrashBtn.addEventListener('click', () => {
+            showConfirmModal('Очистить всю корзину? Все удаленные заметки будут удалены навсегда!', () => {
+                emptyTrash();
+            });
+        });
     }
     
-    // Функция для удаления кнопки "Очистить корзину"
     function removeEmptyTrashButton() {
         const emptyTrashBtn = document.getElementById('emptyTrashBtn');
         if (emptyTrashBtn) {
