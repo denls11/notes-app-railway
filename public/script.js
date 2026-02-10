@@ -587,24 +587,49 @@ document.addEventListener('DOMContentLoaded', () => {
                     throw new Error('Неверный формат файла');
                 }
                 
+                // Показываем одно уведомление о начале импорта
+                showNotification(`Импорт ${importedNotes.length} заметок...`, 'info');
+                
+                let importedCount = 0;
+                let errorCount = 0;
+                
                 for (const note of importedNotes) {
-                    const isImportant = note.is_important !== undefined 
-                        ? note.is_important 
-                        : note.important || false;
-                    
-                    await fetch(`${API_URL}/notes`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            title: note.title || note.Title,
-                            content: note.content || note.Content,
-                            tags: note.tags || note.Tags || [],
-                            is_important: isImportant
-                        })
-                    });
+                    try {
+                        const isImportant = note.is_important !== undefined 
+                            ? note.is_important 
+                            : note.important || false;
+                        
+                        const response = await fetch(`${API_URL}/notes`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                title: note.title || note.Title,
+                                content: note.content || note.Content,
+                                tags: note.tags || note.Tags || [],
+                                is_important: isImportant
+                            })
+                        });
+                        
+                        if (response.ok) {
+                            importedCount++;
+                        } else {
+                            errorCount++;
+                        }
+                        
+                        // Не показываем уведомление для каждой заметки
+                        
+                    } catch (noteError) {
+                        errorCount++;
+                    }
                 }
                 
-                showNotification('Заметки успешно импортированы', 'success');
+                // Показываем итоговое уведомление
+                let message = `Импортировано ${importedCount} заметок`;
+                if (errorCount > 0) {
+                    message += ` (ошибок: ${errorCount})`;
+                }
+                
+                showNotification(message, importedCount > 0 ? 'success' : 'error');
                 await loadNotes();
             } catch (error) {
                 console.error('Ошибка импорта:', error);
@@ -639,8 +664,22 @@ document.addEventListener('DOMContentLoaded', () => {
         cancelDeleteBtn.addEventListener('click', handleCancel);
     }
 
+    // Массив активных уведомлений
+    const activeNotifications = [];
+    const MAX_NOTIFICATIONS = 3;
+
     function showNotification(message, type = 'info') {
         const notificationArea = document.getElementById('notificationArea');
+        
+        // Проверяем, не превышен ли лимит уведомлений
+        if (activeNotifications.length >= MAX_NOTIFICATIONS) {
+            // Удаляем самое старое уведомление
+            const oldestNotification = activeNotifications.shift();
+            if (oldestNotification && oldestNotification.element) {
+                removeNotification(oldestNotification.element);
+            }
+        }
+        
         const notificationId = 'notification-' + Date.now();
         
         const notification = document.createElement('div');
@@ -654,20 +693,52 @@ document.addEventListener('DOMContentLoaded', () => {
         
         notificationArea.appendChild(notification);
         
-        setTimeout(() => {
-            const notif = document.getElementById(notificationId);
-            if (notif) {
-                notif.style.opacity = '0';
-                notif.style.transform = 'translateX(100%)';
-                setTimeout(() => notif.remove(), 300);
-            }
+        // Добавляем уведомление в активный список
+        const notificationObj = {
+            id: notificationId,
+            element: notification,
+            timeout: null
+        };
+        
+        activeNotifications.push(notificationObj);
+        
+        // Автоматическое скрытие через 5 секунд
+        notificationObj.timeout = setTimeout(() => {
+            removeNotification(notification);
         }, 5000);
         
+        // Обработчик закрытия по кнопке
         notification.querySelector('.close-notification').addEventListener('click', () => {
-            notification.style.opacity = '0';
-            notification.style.transform = 'translateX(100%)';
-            setTimeout(() => notification.remove(), 300);
+            removeNotification(notification);
         });
+        
+        return notificationId;
+    }
+    
+    function removeNotification(notificationElement) {
+        if (!notificationElement || !notificationElement.parentNode) return;
+        
+        // Находим объект уведомления в массиве
+        const index = activeNotifications.findIndex(n => n.element === notificationElement);
+        if (index !== -1) {
+            // Очищаем таймер
+            if (activeNotifications[index].timeout) {
+                clearTimeout(activeNotifications[index].timeout);
+            }
+            // Удаляем из массива
+            activeNotifications.splice(index, 1);
+        }
+        
+        // Анимация скрытия
+        notificationElement.style.opacity = '0';
+        notificationElement.style.transform = 'translateX(100%)';
+        
+        // Удаляем из DOM после анимации
+        setTimeout(() => {
+            if (notificationElement.parentNode) {
+                notificationElement.parentNode.removeChild(notificationElement);
+            }
+        }, 300);
     }
 
     function escapeHtml(text) {
