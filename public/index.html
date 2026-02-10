@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Заметки</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-sticky-note"></i> Заметки</h1>
+            <div class="theme-switch">
+                <button id="themeToggle">
+                    <i class="fas fa-moon"></i> Тема
+                </button>
+            </div>
+            <button id="newNoteBtn" class="addButton">
+                <i class="fas fa-plus"></i> Создать (Ctrl+B)
+            </button>
+        </header>
+        
+        <div class="search-sort">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="searchInput" class="search" placeholder="Поиск по заголовку и тексту...">
+            </div>
+            <select id="sortSelect">
+                <option value="">Сортировка</option>
+                <option value="newest">Сначала новые</option>
+                <option value="oldest">Сначала старые</option>
+                <option value="alpha-asc">А-Я</option>
+                <option value="alpha-desc">Я-А</option>
+                <option value="important">Сначала важные</option>
+            </select>
+        </div>
+        
+        <div class="filters-controls">
+            <div class="filter-buttons">
+                <button class="filter-btn active" data-filter="all">Все заметки</button>
+                <!-- <button class="filter-btn" data-filter="active">Активные</button> -->
+                <button class="filter-btn" data-filter="important">Важные</button>
+                <button class="filter-btn" data-filter="deleted">Корзина</button>
+            </div>
+            <div class="control-buttons">
+                <button id="exportBtn" class="trash-btn">
+                    <i class="fas fa-download"></i> Экспорт
+                </button>
+                <button id="importBtn" class="trash-btn">
+                    <i class="fas fa-upload"></i> Импорт
+                </button>
+                <button id="clearAllBtn" class="trash-btn">
+                    <i class="fas fa-broom"></i> Очистить всё
+                </button>
+            </div>
+        </div>
+        
+        <div class="notes" id="notesContainer">
+        </div>
+        
+        <div class="modal" id="noteModal">
+            <div class="modal-box">
+                <div class="modal-header">
+                    <h2 id="modalTitle">Новая заметка</h2>
+                    <button class="close" id="closeModal">&times;</button>
+                </div>
+                <form id="noteForm">
+                    <input type="text" id="noteTitle" placeholder="Заголовок" required maxlength="100">
+                    <input type="text" id="noteTags" placeholder="Теги (Например: работа, идеи)">
+                    <textarea id="noteText" placeholder="Текст заметки..." required maxlength="5000"></textarea>
+                </form>
+                    <div class="form-options">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="noteImportant">
+                            <span>Пометить как важную</span>
+                        </label>
+                    </div>
+            
+                    <div class="buttons">
+                        <button type="submit" class="btn save" id="saveBtn">Сохранить (Ctrl+Q)</button>
+                        <button type="button" class="btn cancel" id="cancelBtn">Отмена (Esc)</button>
+                    </div>
+                
+            </div>
+        </div>
+        
+        <div class="modal" id="confirmModal">
+            <div class="modal-box confirm-modal">
+                <div class="modal-header">
+                    <h2><i class="fas fa-exclamation-triangle"></i> Подтверждение</h2>
+                </div>
+                <p id="confirmMessage">Вы уверены, что хотите удалить эту заметку?</p>
+                <div class="confirm-buttons">
+                    <button class="btn confirm-delete" id="confirmDeleteBtn">Удалить</button>
+                    <button class="btn cancel" id="cancelDeleteBtn">Отмена</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal" id="clearAllModal">
+            <div class="modal-box confirm-modal">
+                <div class="modal-header">
+                    <h2><i class="fas fa-exclamation-triangle"></i> Подтверждение</h2>
+                </div>
+                <p id="clearAllMessage">Вы уверены, что хотите удалить ВСЕ заметки? Это действие нельзя отменить.</p>
+                <div class="confirm-buttons">
+                    <button class="btn confirm-delete" id="confirmClearAllBtn">Удалить всё</button>
+                    <button class="btn cancel" id="cancelClearAllBtn">Отмена</button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="notificationArea"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
