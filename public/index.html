@@ -8,110 +8,245 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1><i class="fas fa-sticky-note"></i> Заметки</h1>
-            <div class="theme-switch">
-                <button id="themeToggle">
-                    <i class="fas fa-moon"></i> Тема
-                </button>
-            </div>
-            <button id="newNoteBtn" class="addButton">
-                <i class="fas fa-plus"></i> Создать (Ctrl+B)
-            </button>
-        </header>
-        
-        <div class="search-sort">
-            <div class="search-box">
-                <i class="fas fa-search"></i>
-                <input type="text" id="searchInput" class="search" placeholder="Поиск по заголовку и тексту...">
-            </div>
-            <select id="sortSelect">
-                <option value="">Сортировка</option>
-                <option value="newest">Сначала новые</option>
-                <option value="oldest">Сначала старые</option>
-                <option value="alpha-asc">А-Я</option>
-                <option value="alpha-desc">Я-А</option>
-                <option value="important">Сначала важные</option>
-            </select>
-        </div>
-        
-        <div class="filters-controls">
-            <div class="filter-buttons">
-                <button class="filter-btn active" data-filter="all">Все заметки</button>
-                <button class="filter-btn" data-filter="important">Важные</button>
-                <button class="filter-btn" data-filter="deleted">Корзина</button>
-            </div>
-            <div class="control-buttons">
-                <button id="exportBtn" class="trash-btn">
-                    <i class="fas fa-download"></i> Экспорт
-                </button>
-                <button id="importBtn" class="trash-btn">
-                    <i class="fas fa-upload"></i> Импорт
-                </button>
-                <button id="clearAllBtn" class="trash-btn">
-                    <i class="fas fa-broom"></i> Очистить всё
-                </button>
-            </div>
-        </div>
-        
-        <div class="notes" id="notesContainer">
-        </div>
-        
-        <div class="modal" id="noteModal">
-            <div class="modal-box">
-                <div class="modal-header">
-                    <h2 id="modalTitle">Новая заметка</h2>
-                    <button class="close" id="closeModal">&times;</button>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i class="fas fa-sticky-note"></i>
+                    <h1>Заметки</h1>
                 </div>
-                <form id="noteForm">
-                    <input type="text" id="noteTitle" placeholder="Заголовок" required maxlength="100">
-                    <input type="text" id="noteTags" placeholder="Теги (Например: работа, идеи)">
-                    <textarea id="noteText" placeholder="Текст заметки..." required maxlength="5000"></textarea>
-                </form>
-                    <div class="form-options">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="noteImportant">
-                            <span>Пометить как важную</span>
-                        </label>
-                    </div>
-            
-                    <div class="buttons">
-                        <button type="submit" class="btn save" id="saveBtn">Сохранить (Ctrl+Q)</button>
-                        <button type="button" class="btn cancel" id="cancelBtn">Отмена (Esc)</button>
-                    </div>
-                
-            </div>
-        </div>
-        
-        <div class="modal" id="confirmModal">
-            <div class="modal-box confirm-modal">
-                <div class="modal-header">
-                    <h2><i class="fas fa-exclamation-triangle"></i> Подтверждение</h2>
-                </div>
-                <p id="confirmMessage">Вы уверены, что хотите удалить эту заметку?</p>
-                <div class="confirm-buttons">
-                    <button class="btn confirm-delete" id="confirmDeleteBtn">Удалить</button>
-                    <button class="btn cancel" id="cancelDeleteBtn">Отмена</button>
+                <div class="theme-switch">
+                    <button id="themeToggle" class="theme-btn">
+                        <i class="fas fa-moon"></i>
+                        <span>Тема</span>
+                    </button>
                 </div>
             </div>
-        </div>
 
-        <div class="modal" id="clearAllModal">
-            <div class="modal-box confirm-modal">
-                <div class="modal-header">
-                    <h2><i class="fas fa-exclamation-triangle"></i> Подтверждение</h2>
+            <div class="sidebar-content">
+                <!-- Создание заметки -->
+                <div class="create-section">
+                    <button id="newNoteBtn" class="create-btn">
+                        <i class="fas fa-plus-circle"></i>
+                        <span>Создать заметку</span>
+                        <small class="shortcut">Ctrl+B</small>
+                    </button>
                 </div>
-                <p id="clearAllMessage">Вы уверены, что хотите удалить ВСЕ заметки? Это действие нельзя отменить.</p>
-                <div class="confirm-buttons">
-                    <button class="btn confirm-delete" id="confirmClearAllBtn">Удалить всё</button>
-                    <button class="btn cancel" id="cancelClearAllBtn">Отмена</button>
+
+                <!-- Поиск -->
+                <div class="search-section">
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchInput" class="search" placeholder="Поиск заметок...">
+                    </div>
+                </div>
+
+                <!-- Фильтры -->
+                <div class="filters-section">
+                    <h3>Фильтры</h3>
+                    <div class="filter-buttons">
+                        <button class="filter-btn active" data-filter="all">
+                            <i class="fas fa-layer-group"></i>
+                            <span>Все заметки</span>
+                        </button>
+                        <button class="filter-btn" data-filter="important">
+                            <i class="fas fa-star"></i>
+                            <span>Важные</span>
+                        </button>
+                        <button class="filter-btn" data-filter="deleted">
+                            <i class="fas fa-trash"></i>
+                            <span>Корзина</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Сортировка -->
+                <div class="sort-section">
+                    <h3>Сортировка</h3>
+                    <select id="sortSelect" class="sort-select">
+                        <option value="">Выберите сортировку</option>
+                        <option value="newest">Сначала новые</option>
+                        <option value="oldest">Сначала старые</option>
+                        <option value="alpha-asc">А → Я</option>
+                        <option value="alpha-desc">Я → А</option>
+                        <option value="important">Сначала важные</option>
+                    </select>
+                </div>
+
+                <!-- Инструменты -->
+                <div class="tools-section">
+                    <h3>Инструменты</h3>
+                    <div class="tool-buttons">
+                        <button id="exportBtn" class="tool-btn">
+                            <i class="fas fa-file-export"></i>
+                            <span>Экспорт</span>
+                        </button>
+                        <button id="importBtn" class="tool-btn">
+                            <i class="fas fa-file-import"></i>
+                            <span>Импорт</span>
+                        </button>
+                        <button id="clearAllBtn" class="tool-btn danger">
+                            <i class="fas fa-broom"></i>
+                            <span>Очистить всё</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Статистика -->
+                <div class="stats-section">
+                    <h3>Статистика</h3>
+                    <div class="stats">
+                        <div class="stat-item">
+                            <i class="fas fa-sticky-note"></i>
+                            <span id="totalNotes">0</span>
+                            <small>Всего</small>
+                        </div>
+                        <div class="stat-item">
+                            <i class="fas fa-star"></i>
+                            <span id="importantNotes">0</span>
+                            <small>Важных</small>
+                        </div>
+                        <div class="stat-item">
+                            <i class="fas fa-trash"></i>
+                            <span id="deletedNotes">0</span>
+                            <small>В корзине</small>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
-        
-        <div id="notificationArea"></div>
+
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="user-details">
+                        <span class="username">Пользователь</span>
+                        <small class="user-email">notes@example.com</small>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="content-header">
+                <div class="breadcrumb">
+                    <span id="currentFilterText">Все заметки</span>
+                    <span id="notesCount">(0)</span>
+                </div>
+                <div class="view-controls">
+                    <button class="view-btn active" data-view="grid">
+                        <i class="fas fa-th-large"></i>
+                    </button>
+                    <button class="view-btn" data-view="list">
+                        <i class="fas fa-list"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Notes Container -->
+            <div class="notes" id="notesContainer">
+                <!-- Заметки будут здесь -->
+            </div>
+
+            <!-- Empty State -->
+            <div class="empty-state" id="emptyState">
+                <div class="empty-icon">
+                    <i class="fas fa-sticky-note"></i>
+                </div>
+                <h3>Нет заметок</h3>
+                <p>Создайте свою первую заметку, нажав кнопку "Создать заметку"</p>
+                <button id="emptyCreateBtn" class="create-btn">
+                    <i class="fas fa-plus"></i>
+                    Создать первую заметку
+                </button>
+            </div>
+        </main>
     </div>
+
+    <!-- Модальные окна (остаются без изменений) -->
+    <div class="modal" id="noteModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2 id="modalTitle">Новая заметка</h2>
+                <button class="close" id="closeModal">&times;</button>
+            </div>
+            <form id="noteForm">
+                <div class="form-group">
+                    <label for="noteTitle">Заголовок</label>
+                    <input type="text" id="noteTitle" placeholder="Введите заголовок" required maxlength="100">
+                </div>
+                <div class="form-group">
+                    <label for="noteTags">Теги</label>
+                    <input type="text" id="noteTags" placeholder="работа, идеи, покупки...">
+                    <small>Разделяйте теги запятыми</small>
+                </div>
+                <div class="form-group">
+                    <label for="noteText">Текст заметки</label>
+                    <textarea id="noteText" placeholder="Начните писать здесь..." required maxlength="5000"></textarea>
+                </div>
+                <div class="form-options">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="noteImportant">
+                        <span class="checkmark"></span>
+                        <span class="checkbox-text">Пометить как важную</span>
+                    </label>
+                </div>
+            </form>
+            <div class="buttons">
+                <button type="submit" class="btn save" id="saveBtn">
+                    <i class="fas fa-save"></i>
+                    Сохранить <span class="shortcut">(Ctrl+Q)</span>
+                </button>
+                <button type="button" class="btn cancel" id="cancelBtn">
+                    <i class="fas fa-times"></i>
+                    Отмена <span class="shortcut">(Esc)</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="confirmModal">
+        <div class="modal-box confirm-modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-exclamation-triangle"></i> Подтверждение</h2>
+            </div>
+            <p id="confirmMessage">Вы уверены, что хотите удалить эту заметку?</p>
+            <div class="confirm-buttons">
+                <button class="btn confirm-delete" id="confirmDeleteBtn">
+                    <i class="fas fa-trash"></i>
+                    Удалить
+                </button>
+                <button class="btn cancel" id="cancelDeleteBtn">
+                    <i class="fas fa-times"></i>
+                    Отмена
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="clearAllModal">
+        <div class="modal-box confirm-modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-exclamation-triangle"></i> Подтверждение</h2>
+            </div>
+            <p id="clearAllMessage">Вы уверены, что хотите удалить ВСЕ заметки? Это действие нельзя отменить.</p>
+            <div class="confirm-buttons">
+                <button class="btn confirm-delete" id="confirmClearAllBtn">
+                    <i class="fas fa-broom"></i>
+                    Удалить всё
+                </button>
+                <button class="btn cancel" id="cancelClearAllBtn">
+                    <i class="fas fa-times"></i>
+                    Отмена
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="notificationArea"></div>
 
     <script src="script.js"></script>
 </body>
