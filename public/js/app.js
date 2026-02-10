@@ -2,6 +2,7 @@
 const API_BASE = window.location.origin;
 let currentFilter = 'all';
 let notes = [];
+let editingNoteId = null;
 
 // DOM элементы
 const notesList = document.getElementById('notesList');
@@ -20,26 +21,39 @@ document.addEventListener('DOMContentLoaded', function() {
     setupEventListeners();
 });
 
-// Настройка обработчиков
+// Настройка обработчиков событий
 function setupEventListeners() {
-    saveBtn.addEventListener('click', saveNote);
+    // Кнопка сохранения
+    saveBtn.addEventListener('click', function() {
+        if (editingNoteId) {
+            updateNote(editingNoteId);
+        } else {
+            saveNote();
+        }
+    });
     
+    // Кнопка отмены
     if (cancelBtn) {
         cancelBtn.addEventListener('click', function() {
-            noteTitle.value = '';
-            noteContent.value = '';
-            saveBtn.textContent = 'Сохранить';
-            saveBtn.onclick = saveNote;
-            cancelBtn.style.display = 'none';
+            cancelEdit();
         });
     }
     
     // Фильтры
-    document.querySelectorAll('.filter-btn').forEach(btn => {
+    filterButtons.forEach(btn => {
         btn.addEventListener('click', function() {
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            console.log('🎯 Фильтр изменен:', this.dataset.filter);
+            
+            // Убираем активный класс у всех кнопок
+            filterButtons.forEach(b => b.classList.remove('active'));
+            
+            // Добавляем активный класс текущей кнопке
             this.classList.add('active');
+            
+            // Устанавливаем текущий фильтр
             currentFilter = this.dataset.filter;
+            
+            // Загружаем заметки с новым фильтром
             loadNotes();
         });
     });
@@ -47,43 +61,67 @@ function setupEventListeners() {
     // Поиск
     if (searchInput) {
         searchInput.addEventListener('input', function() {
-            setTimeout(() => loadNotes(), 300);
+            console.log('🔍 Поиск:', this.value);
+            // Используем debounce для избежания частых запросов
+            clearTimeout(this.searchTimeout);
+            this.searchTimeout = setTimeout(() => {
+                loadNotes();
+            }, 500);
         });
     }
     
     // Сортировка
     if (sortSelect) {
-        sortSelect.addEventListener('change', loadNotes);
+        sortSelect.addEventListener('change', function() {
+            console.log('📊 Сортировка изменена:', this.value);
+            loadNotes();
+        });
     }
 }
 
 // Загрузить заметки
 async function loadNotes() {
     try {
-        console.log('📥 Загрузка заметок...');
+        console.log('📥 Загрузка заметок с фильтром:', currentFilter);
         
-        const params = new URLSearchParams({
-            filter: currentFilter,
-            sort: sortSelect ? sortSelect.value : 'newest'
-        });
+        // Показываем индикатор загрузки
+        if (notesList) {
+            notesList.innerHTML = '<div class="empty-state">Загрузка...</div>';
+        }
+        
+        // Собираем параметры запроса
+        const params = new URLSearchParams();
+        params.append('filter', currentFilter);
         
         if (searchInput && searchInput.value) {
             params.append('search', searchInput.value);
         }
         
-        const response = await fetch(`${API_BASE}/api/notes?${params}`);
+        if (sortSelect && sortSelect.value) {
+            params.append('sort', sortSelect.value);
+        }
+        
+        const url = `${API_BASE}/api/notes?${params.toString()}`;
+        console.log('📡 Запрос:', url);
+        
+        const response = await fetch(url);
         
         if (!response.ok) {
-            throw new Error('Ошибка загрузки');
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
         
         notes = await response.json();
         console.log(`✅ Загружено ${notes.length} заметок`);
+        
+        // Отображаем заметки
         renderNotes();
         
     } catch (error) {
-        console.error('❌ Ошибка:', error);
-        alert('Не удалось загрузить заметки');
+        console.error('❌ Ошибка загрузки заметок:', error);
+        if (notesList) {
+            notesList.innerHTML = '<div class="empty-state">Ошибка загрузки заметок</div>';
+        }
+        showMessage('Не удалось загрузить заметки', 'error');
     }
 }
 
@@ -96,6 +134,7 @@ function renderNotes() {
         return;
     }
     
+    // Создаем HTML для каждой заметки
     notesList.innerHTML = notes.map(note => `
         <div class="note-card ${note.important ? 'important' : ''}" data-id="${note.id}">
             <div class="note-header">
@@ -119,18 +158,18 @@ function renderNotes() {
                 </div>
             ` : ''}
             <div class="note-footer">
-                <small>Обновлено: ${formatDate(note.updatedAt)}</small>
+                <small>Обновлено: ${formatDate(note.updated_at || note.updatedAt)}</small>
             </div>
         </div>
     `).join('');
     
-    // Добавляем обработчики СРАЗУ
-    addEventListenersToNotes();
+    // Добавляем обработчики событий к заметкам
+    addNoteEventListeners();
 }
 
 // Добавить обработчики к заметкам
-function addEventListenersToNotes() {
-    // Важность
+function addNoteEventListeners() {
+    // 1. Кнопка "Важная"
     document.querySelectorAll('.toggle-important').forEach(btn => {
         btn.addEventListener('click', async function(e) {
             e.stopPropagation();
@@ -160,11 +199,10 @@ function addEventListenersToNotes() {
                 const result = await response.json();
                 console.log('✅ Результат:', result);
                 
-                // Обновляем данные и перерисовываем
-                note.important = !note.important;
-                renderNotes();
+                // Перезагружаем заметки
+                loadNotes();
                 
-                showMessage(`Заметка ${note.important ? 'отмечена важной' : 'больше не важна'}`, 'success');
+                showMessage(`Заметка ${!note.important ? 'отмечена важной' : 'больше не важна'}`, 'success');
                 
             } catch (error) {
                 console.error('❌ Ошибка:', error);
@@ -173,7 +211,7 @@ function addEventListenersToNotes() {
         });
     });
     
-    // Редактирование
+    // 2. Кнопка "Редактировать"
     document.querySelectorAll('.edit-note').forEach(btn => {
         btn.addEventListener('click', function(e) {
             e.stopPropagation();
@@ -181,25 +219,25 @@ function addEventListenersToNotes() {
             const note = notes.find(n => n.id == noteId);
             
             if (note) {
+                // Заполняем форму
                 noteTitle.value = note.title;
                 noteContent.value = note.content;
                 
+                // Устанавливаем режим редактирования
+                editingNoteId = noteId;
                 saveBtn.textContent = 'Обновить';
-                saveBtn.onclick = function() {
-                    updateNote(noteId);
-                };
                 
                 if (cancelBtn) {
                     cancelBtn.style.display = 'inline-block';
                 }
                 
-                // Прокрутка к форме
+                // Прокручиваем к форме
                 document.querySelector('.note-form')?.scrollIntoView({ behavior: 'smooth' });
             }
         });
     });
     
-    // Удаление
+    // 3. Кнопка "Удалить"
     document.querySelectorAll('.delete-note').forEach(btn => {
         btn.addEventListener('click', async function(e) {
             e.stopPropagation();
@@ -234,9 +272,10 @@ function addEventListenersToNotes() {
         });
     });
     
-    // Клик по карточке
+    // 4. Клик по карточке (просмотр)
     document.querySelectorAll('.note-card').forEach(card => {
         card.addEventListener('click', function(e) {
+            // Игнорируем клики по кнопкам
             if (!e.target.closest('.note-actions')) {
                 const noteId = this.dataset.id;
                 const note = notes.find(n => n.id == noteId);
@@ -283,8 +322,7 @@ async function saveNote() {
         console.log('✅ Заметка создана:', result);
         
         // Очищаем форму
-        noteTitle.value = '';
-        noteContent.value = '';
+        cancelEdit();
         
         // Перезагружаем заметки
         loadNotes();
@@ -332,14 +370,7 @@ async function updateNote(noteId) {
         console.log('✅ Заметка обновлена:', result);
         
         // Возвращаем форму в исходное состояние
-        noteTitle.value = '';
-        noteContent.value = '';
-        saveBtn.textContent = 'Сохранить';
-        saveBtn.onclick = saveNote;
-        
-        if (cancelBtn) {
-            cancelBtn.style.display = 'none';
-        }
+        cancelEdit();
         
         // Перезагружаем заметки
         loadNotes();
@@ -349,6 +380,18 @@ async function updateNote(noteId) {
     } catch (error) {
         console.error('❌ Ошибка:', error);
         showMessage('Не удалось обновить заметку', 'error');
+    }
+}
+
+// Отменить редактирование
+function cancelEdit() {
+    noteTitle.value = '';
+    noteContent.value = '';
+    editingNoteId = null;
+    saveBtn.textContent = 'Сохранить';
+    
+    if (cancelBtn) {
+        cancelBtn.style.display = 'none';
     }
 }
 
@@ -377,27 +420,27 @@ function formatDate(dateString) {
 }
 
 function showMessage(message, type) {
-    // Простое уведомление
-    const color = type === 'error' ? '#f44336' : type === 'success' ? '#4CAF50' : '#2196F3';
-    console.log(`%c${message}`, `color: ${color}; font-weight: bold;`);
+    console.log(`💬 ${type}: ${message}`);
     
-    // Создаем временное уведомление
+    // Создаем уведомление
     const alertDiv = document.createElement('div');
     alertDiv.textContent = message;
     alertDiv.style.cssText = `
         position: fixed;
         top: 20px;
         right: 20px;
-        background: ${color};
+        background: ${type === 'error' ? '#f44336' : type === 'success' ? '#4CAF50' : '#2196F3'};
         color: white;
         padding: 12px 20px;
         border-radius: 5px;
         z-index: 1000;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
         animation: slideIn 0.3s ease;
     `;
     
     document.body.appendChild(alertDiv);
     
+    // Удаляем через 3 секунды
     setTimeout(() => {
         alertDiv.style.animation = 'slideOut 0.3s ease';
         setTimeout(() => alertDiv.remove(), 300);
@@ -420,3 +463,11 @@ if (!document.querySelector('#alert-styles')) {
     `;
     document.head.appendChild(style);
 }
+
+// Экспортируем функции для отладки
+window.app = {
+    loadNotes,
+    cancelEdit,
+    getNotes: () => notes,
+    getCurrentFilter: () => currentFilter
+};
