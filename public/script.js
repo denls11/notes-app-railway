@@ -285,29 +285,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function editNote(id) {
-        try {
-            const response = await fetch(`${API_URL}/notes/${id}`);
-            const note = await response.json();
-            
-            currentNoteId = id;
-            document.getElementById('modalTitle').textContent = 'Редактировать заметку';
-            noteTitle.value = note.title;
-            noteText.value = note.content;
-            noteTags.value = note.tags ? note.tags.join(', ') : '';
-            
-            // Используем правильное поле для важности
-            const isImportant = note.is_important !== undefined 
-                ? note.is_important 
-                : note.important || false;
-            noteImportant.checked = isImportant;
-            
-            noteModal.classList.add('active');
-            noteTitle.focus();
-        } catch (error) {
-            console.error('Ошибка при загрузке заметки:', error);
-            showNotification('Не удалось загрузить заметку', 'error');
-        }
+    try {
+        const response = await fetch(`${API_URL}/notes/${id}`);
+        const note = await response.json();
+        
+        currentNoteId = id;
+        document.getElementById('modalTitle').textContent = 'Редактировать заметку';
+        noteTitle.value = note.title;
+        noteText.value = note.content;
+        noteTags.value = note.tags ? note.tags.join(', ') : '';
+        
+        // Используем правильное поле для важности
+        const isImportant = note.is_important !== undefined 
+            ? note.is_important 
+            : note.important || false;
+        
+        console.log(`Загрузка заметки ${id}: is_important = ${isImportant}`);
+        console.log('Все поля заметки:', note);
+        
+        noteImportant.checked = isImportant;
+        
+        noteModal.classList.add('active');
+        noteTitle.focus();
+    } catch (error) {
+        console.error('Ошибка при загрузке заметки:', error);
+        showNotification('Не удалось загрузить заметку', 'error');
     }
+}
 
     async function saveNote(e) {
     e.preventDefault();
