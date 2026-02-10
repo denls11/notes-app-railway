@@ -385,20 +385,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function deleteNotePermanently(id) {
-        try {
-            const response = await fetch(`${API_URL}/notes/${id}/permanent`, {
-                method: 'DELETE'
-            });
-            
-            if (!response.ok) throw new Error('Ошибка удаления');
-            
-            showNotification('Заметка удалена навсегда', 'success');
-            await loadNotes();
-        } catch (error) {
-            console.error('Ошибка удаления:', error);
-            showNotification('Ошибка при удалении заметки', 'error');
-        }
+    try {
+        const response = await fetch(`${API_URL}/notes/${id}/permanent`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) throw new Error('Ошибка удаления');
+        
+        showNotification('Заметка удалена навсегда', 'success');
+        await loadNotes();
+    } catch (error) {
+        console.error('Ошибка удаления:', error);
+        showNotification('Ошибка при удалении заметки', 'error');
     }
+}
 
     async function restoreNote(id) {
         try {
@@ -520,21 +520,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function clearAllNotes() {
-        try {
-            const response = await fetch(`${API_URL}/notes?confirm=true`, {
-                method: 'DELETE'
-            });
-            
-            if (!response.ok) throw new Error('Ошибка очистки');
-            
-            showNotification('Все заметки удалены', 'success');
-            await loadNotes();
-        } catch (error) {
-            console.error('Ошибка очистки:', error);
-            showNotification('Ошибка при очистке заметок', 'error');
-        }
+    try {
+        // Удаляем все заметки (и обычные, и из корзины)
+        const response = await fetch(`${API_URL}/notes/clear-all`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) throw new Error('Ошибка очистки');
+        
+        showNotification('Все заметки удалены', 'success');
+        await loadNotes();
+    } catch (error) {
+        console.error('Ошибка очистки:', error);
+        showNotification('Ошибка при очистке заметок', 'error');
     }
-
+}
     async function exportNotes() {
         try {
             const response = await fetch(`${API_URL}/notes`);
