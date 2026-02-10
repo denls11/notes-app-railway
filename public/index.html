@@ -1,109 +1,118 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Заметки</title>
-    <!-- Подключите ваш CSS файл -->
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-    <!-- Контейнер всей страницы -->
     <div class="container">
-
-        <!-- Шапка: Заголовок и кнопки -->
         <header>
-            <h1>
-                <span>&#128221;</span> Мои заметки
-            </h1>
+            <h1><i class="fas fa-sticky-note"></i> Заметки</h1>
             <div class="theme-switch">
-                <button id="lightTheme" title="Светлая тема">🌞</button>
-                <button id="darkTheme" title="Тёмная тема">🌙</button>
+                <button id="themeToggle">
+                    <i class="fas fa-moon"></i> Тема
+                </button>
             </div>
-            <button id="newNoteBtn">
-                <span>&#9998;</span> Новая заметка
+            <button id="newNoteBtn" class="addButton">
+                <i class="fas fa-plus"></i> Создать (Ctrl+B)
             </button>
         </header>
-
-        <!-- Блок поиска и сортировки -->
+        
         <div class="search-sort">
             <div class="search-box">
-                <i>&#128269;</i> <!-- Иконка поиска -->
-                <input type="text" id="search" class="search" placeholder="Поиск..." />
+                <i class="fas fa-search"></i>
+                <input type="text" id="searchInput" class="search" placeholder="Поиск по заголовку и тексту...">
             </div>
-            <select id="sortSelect" aria-label="Сортировать заметки">
-                <option value="latest">По дате: новые сверху</option>
-                <option value="oldest">По дате: старые сверху</option>
-                <option value="alphabet">По алфавиту</option>
+            <select id="sortSelect">
+                <option value="">Сортировка</option>
+                <option value="newest">Сначала новые</option>
+                <option value="oldest">Сначала старые</option>
+                <option value="alpha-asc">А-Я</option>
+                <option value="alpha-desc">Я-А</option>
+                <option value="important">Сначала важные</option>
             </select>
         </div>
-
-        <!-- Контролы фильтров и удаления -->
+        
         <div class="filters-controls">
             <div class="filter-buttons">
-                <button class="filter-btn" data-filter="all">Все</button>
-                <button class="filter-btn" data-filter="completed">Выполненные</button>
-                <button class="filter-btn" data-filter="important">Важно</button>
-                <button class="filter-btn" data-filter="uncompleted">Невыполненные</button>
+                <button class="filter-btn active" data-filter="all">Все заметки</button>
+                <button class="filter-btn" data-filter="important">Важные</button>
+                <button class="filter-btn" data-filter="deleted">Корзина</button>
             </div>
             <div class="control-buttons">
-                <button class="trash-btn" id="deleteSelected">Удалить выбранные</button>
-                <button class="trash-btn" id="deleteAll">Очистить всё</button>
+                <button id="exportBtn" class="trash-btn">
+                    <i class="fas fa-download"></i> Экспорт
+                </button>
+                <button id="importBtn" class="trash-btn">
+                    <i class="fas fa-upload"></i> Импорт
+                </button>
+                <button id="clearAllBtn" class="trash-btn">
+                    <i class="fas fa-broom"></i> Очистить всё
+                </button>
             </div>
         </div>
-
-        <!-- Область для заметок -->
+        
         <div class="notes" id="notesContainer">
-            <!-- Здесь будут отображаться заметки -->
         </div>
-
-        <!-- Модальные окна -->
-        <!-- Форма для новой/редактируемой заметки -->
+        
         <div class="modal" id="noteModal">
             <div class="modal-box">
                 <div class="modal-header">
-                    <h3 class="modal-title">Создать заметку</h3>
-                    <button class="close" id="closeNoteModal">&times;</button>
+                    <h2 id="modalTitle">Новая заметка</h2>
+                    <button class="close" id="closeModal">&times;</button>
                 </div>
                 <form id="noteForm">
-                    <input type="text" id="noteTitle" placeholder="Заголовок" required />
+                    <input type="text" id="noteTitle" placeholder="Заголовок" required maxlength="100">
+                    <input type="text" id="noteTags" placeholder="Теги (Например: работа, идеи)">
+                    <textarea id="noteText" placeholder="Текст заметки..." required maxlength="5000"></textarea>
+                </form>
                     <div class="form-options">
                         <label class="checkbox-label">
-                            <input type="checkbox" id="important" />
-                            Важно
+                            <input type="checkbox" id="noteImportant">
+                            <span>Пометить как важную</span>
                         </label>
                     </div>
-                    <textarea id="noteText" rows="4" placeholder="Текст заметки" required></textarea>
+            
                     <div class="buttons">
-                        <button type="submit" class="btn save">Сохранить</button>
-                        <button type="button" class="btn cancel" id="cancelNote">Отмена</button>
+                        <button type="submit" class="btn save" id="saveBtn">Сохранить (Ctrl+Q)</button>
+                        <button type="button" class="btn cancel" id="cancelBtn">Отмена (Esc)</button>
                     </div>
-                </form>
+                
             </div>
         </div>
-
-        <!-- Подтверждение удаления -->
+        
         <div class="modal" id="confirmModal">
             <div class="modal-box confirm-modal">
                 <div class="modal-header">
-                    <h3>Подтвердите действие</h3>
-                    <button class="close" id="closeConfirm">&times;</button>
+                    <h2><i class="fas fa-exclamation-triangle"></i> Подтверждение</h2>
                 </div>
-                <div id="confirmMessage">Вы уверены, что хотите удалить выбранные заметки?</div>
+                <p id="confirmMessage">Вы уверены, что хотите удалить эту заметку?</p>
                 <div class="confirm-buttons">
-                    <button class="btn save" id="confirmYes">Да</button>
-                    <button class="btn cancel" id="confirmNo">Нет</button>
+                    <button class="btn confirm-delete" id="confirmDeleteBtn">Удалить</button>
+                    <button class="btn cancel" id="cancelDeleteBtn">Отмена</button>
                 </div>
             </div>
         </div>
 
-        <!-- Уведомления -->
+        <div class="modal" id="clearAllModal">
+            <div class="modal-box confirm-modal">
+                <div class="modal-header">
+                    <h2><i class="fas fa-exclamation-triangle"></i> Подтверждение</h2>
+                </div>
+                <p id="clearAllMessage">Вы уверены, что хотите удалить ВСЕ заметки? Это действие нельзя отменить.</p>
+                <div class="confirm-buttons">
+                    <button class="btn confirm-delete" id="confirmClearAllBtn">Удалить всё</button>
+                    <button class="btn cancel" id="cancelClearAllBtn">Отмена</button>
+                </div>
+            </div>
+        </div>
+        
         <div id="notificationArea"></div>
-
     </div>
 
-    <!-- Подключение скриптов (опционально) -->
     <script src="script.js"></script>
 </body>
 </html>
