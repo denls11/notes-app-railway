@@ -2,7 +2,6 @@
 const API_BASE = window.location.origin;
 let currentFilter = 'all';
 let notes = [];
-let editingNoteId = null;
 
 // DOM элементы
 const notesList = document.getElementById('notesList');
@@ -15,31 +14,44 @@ const searchInput = document.getElementById('searchInput');
 const sortSelect = document.getElementById('sortSelect');
 
 // Инициализация
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function() {
     console.log('🚀 Приложение запущено');
     loadNotes();
     setupEventListeners();
 });
 
-// Настройка обработчиков событий
+// Настройка обработчиков
 function setupEventListeners() {
-    saveBtn.addEventListener('click', saveOrUpdateNote);
+    saveBtn.addEventListener('click', saveNote);
     
     if (cancelBtn) {
-        cancelBtn.addEventListener('click', cancelEdit);
+        cancelBtn.addEventListener('click', function() {
+            noteTitle.value = '';
+            noteContent.value = '';
+            saveBtn.textContent = 'Сохранить';
+            saveBtn.onclick = saveNote;
+            cancelBtn.style.display = 'none';
+        });
     }
     
-    filterButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            const filter = btn.dataset.filter;
-            setFilter(filter);
+    // Фильтры
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            currentFilter = this.dataset.filter;
+            loadNotes();
         });
     });
     
+    // Поиск
     if (searchInput) {
-        searchInput.addEventListener('input', debounce(loadNotes, 300));
+        searchInput.addEventListener('input', function() {
+            setTimeout(() => loadNotes(), 300);
+        });
     }
     
+    // Сортировка
     if (sortSelect) {
         sortSelect.addEventListener('change', loadNotes);
     }
@@ -48,28 +60,21 @@ function setupEventListeners() {
 // Загрузить заметки
 async function loadNotes() {
     try {
-        showLoading(true);
+        console.log('📥 Загрузка заметок...');
         
-        const filter = currentFilter;
-        const search = searchInput ? searchInput.value : '';
-        const sort = sortSelect ? sortSelect.value : 'newest';
+        const params = new URLSearchParams({
+            filter: currentFilter,
+            sort: sortSelect ? sortSelect.value : 'newest'
+        });
         
-        let url = `${API_BASE}/api/notes`;
+        if (searchInput && searchInput.value) {
+            params.append('search', searchInput.value);
+        }
         
-        // Добавляем параметры если есть соответствующие элементы
-        const params = new URLSearchParams();
-        params.append('filter', filter);
-        if (search) params.append('search', search);
-        params.append('sort', sort);
-        
-        url += '?' + params.toString();
-        
-        console.log('📥 Загрузка заметок:', url);
-        
-        const response = await fetch(url);
+        const response = await fetch(`${API_BASE}/api/notes?${params}`);
         
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error('Ошибка загрузки');
         }
         
         notes = await response.json();
@@ -77,10 +82,8 @@ async function loadNotes() {
         renderNotes();
         
     } catch (error) {
-        console.error('❌ Ошибка загрузки заметок:', error);
-        showMessage('Не удалось загрузить заметки', 'error');
-    } finally {
-        showLoading(false);
+        console.error('❌ Ошибка:', error);
+        alert('Не удалось загрузить заметки');
     }
 }
 
@@ -98,13 +101,13 @@ function renderNotes() {
             <div class="note-header">
                 <h3 class="note-title">${escapeHtml(note.title)}</h3>
                 <div class="note-actions">
-                    <button class="btn-icon important-btn" title="${note.important ? 'Снять важность' : 'Отметить важной'}" data-id="${note.id}">
+                    <button class="btn-icon toggle-important" title="${note.important ? 'Снять важность' : 'Отметить важной'}" data-id="${note.id}">
                         <i class="fas fa-star ${note.important ? 'active' : ''}"></i>
                     </button>
-                    <button class="btn-icon edit-btn" title="Редактировать" data-id="${note.id}">
+                    <button class="btn-icon edit-note" title="Редактировать" data-id="${note.id}">
                         <i class="fas fa-edit"></i>
                     </button>
-                    <button class="btn-icon delete-btn" title="В корзину" data-id="${note.id}">
+                    <button class="btn-icon delete-note" title="В корзину" data-id="${note.id}">
                         <i class="fas fa-trash"></i>
                     </button>
                 </div>
@@ -116,160 +119,137 @@ function renderNotes() {
                 </div>
             ` : ''}
             <div class="note-footer">
-                <small>Обновлено: ${formatDate(note.updatedAt || note.created_at)}</small>
+                <small>Обновлено: ${formatDate(note.updatedAt)}</small>
             </div>
         </div>
     `).join('');
     
-    // Добавляем обработчики событий для кнопок
-    addNoteEventListeners();
+    // Добавляем обработчики СРАЗУ
+    addEventListenersToNotes();
 }
 
-// Добавить обработчики для кнопок заметок
-function addNoteEventListeners() {
-    // Кнопка "Важная"
-    document.querySelectorAll('.important-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
+// Добавить обработчики к заметкам
+function addEventListenersToNotes() {
+    // Важность
+    document.querySelectorAll('.toggle-important').forEach(btn => {
+        btn.addEventListener('click', async function(e) {
             e.stopPropagation();
-            const noteId = btn.dataset.id;
+            const noteId = this.dataset.id;
             const note = notes.find(n => n.id == noteId);
             
-            if (note) {
-                try {
-                    console.log(`⭐ Изменение важности заметки ${noteId} на ${!note.important}`);
-                    
-                    const response = await fetch(`${API_BASE}/api/notes/${noteId}/important`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ important: !note.important })
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    
-                    const result = await response.json();
-                    console.log('✅ Результат:', result);
-                    
-                    // Обновляем локальные данные
-                    note.important = !note.important;
-                    // Перерисовываем одну карточку
-                    updateNoteCard(noteId);
-                    
-                    showMessage(`Заметка ${note.important ? 'отмечена важной' : 'больше не важна'}`, 'success');
-                    
-                } catch (error) {
-                    console.error('❌ Ошибка изменения важности:', error);
-                    showMessage('Не удалось изменить важность', 'error');
+            if (!note) return;
+            
+            try {
+                console.log(`⭐ Изменение важности для заметки ${noteId}`);
+                
+                const response = await fetch(`${API_BASE}/api/notes/${noteId}/important`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        important: !note.important
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Ошибка ${response.status}: ${errorText}`);
                 }
+                
+                const result = await response.json();
+                console.log('✅ Результат:', result);
+                
+                // Обновляем данные и перерисовываем
+                note.important = !note.important;
+                renderNotes();
+                
+                showMessage(`Заметка ${note.important ? 'отмечена важной' : 'больше не важна'}`, 'success');
+                
+            } catch (error) {
+                console.error('❌ Ошибка:', error);
+                showMessage('Не удалось изменить важность', 'error');
             }
         });
     });
     
-    // Кнопка "Редактировать"
-    document.querySelectorAll('.edit-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+    // Редактирование
+    document.querySelectorAll('.edit-note').forEach(btn => {
+        btn.addEventListener('click', function(e) {
             e.stopPropagation();
-            const noteId = btn.dataset.id;
-            startEditNote(noteId);
+            const noteId = this.dataset.id;
+            const note = notes.find(n => n.id == noteId);
+            
+            if (note) {
+                noteTitle.value = note.title;
+                noteContent.value = note.content;
+                
+                saveBtn.textContent = 'Обновить';
+                saveBtn.onclick = function() {
+                    updateNote(noteId);
+                };
+                
+                if (cancelBtn) {
+                    cancelBtn.style.display = 'inline-block';
+                }
+                
+                // Прокрутка к форме
+                document.querySelector('.note-form')?.scrollIntoView({ behavior: 'smooth' });
+            }
         });
     });
     
-    // Кнопка "Удалить"
-    document.querySelectorAll('.delete-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
+    // Удаление
+    document.querySelectorAll('.delete-note').forEach(btn => {
+        btn.addEventListener('click', async function(e) {
             e.stopPropagation();
-            const noteId = btn.dataset.id;
+            const noteId = this.dataset.id;
             
             if (confirm('Переместить заметку в корзину?')) {
                 try {
-                    console.log(`🗑️ Удаление заметки ${noteId} в корзину`);
+                    console.log(`🗑️ Удаление заметки ${noteId}`);
                     
                     const response = await fetch(`${API_BASE}/api/notes/${noteId}`, {
                         method: 'DELETE'
                     });
                     
                     if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
+                        const errorText = await response.text();
+                        throw new Error(`Ошибка ${response.status}: ${errorText}`);
                     }
                     
                     const result = await response.json();
                     console.log('✅ Результат:', result);
                     
-                    // Удаляем из локального списка
-                    notes = notes.filter(n => n.id != noteId);
-                    renderNotes();
+                    // Перезагружаем заметки
+                    loadNotes();
                     
                     showMessage('Заметка перемещена в корзину', 'success');
                     
                 } catch (error) {
-                    console.error('❌ Ошибка удаления:', error);
+                    console.error('❌ Ошибка:', error);
                     showMessage('Не удалось удалить заметку', 'error');
                 }
             }
         });
     });
     
-    // Клик по карточке для просмотра
+    // Клик по карточке
     document.querySelectorAll('.note-card').forEach(card => {
-        card.addEventListener('click', (e) => {
+        card.addEventListener('click', function(e) {
             if (!e.target.closest('.note-actions')) {
-                const noteId = card.dataset.id;
+                const noteId = this.dataset.id;
                 const note = notes.find(n => n.id == noteId);
                 if (note) {
-                    alert(`Заголовок: ${note.title}\n\n${note.content}`);
+                    alert(`${note.title}\n\n${note.content}`);
                 }
             }
         });
     });
 }
 
-// Обновить одну карточку заметки
-function updateNoteCard(noteId) {
-    const note = notes.find(n => n.id == noteId);
-    if (!note) return;
-    
-    const card = document.querySelector(`.note-card[data-id="${noteId}"]`);
-    if (!card) return;
-    
-    // Обновляем класс важности
-    if (note.important) {
-        card.classList.add('important');
-    } else {
-        card.classList.remove('important');
-    }
-    
-    // Обновляем иконку звезды
-    const starIcon = card.querySelector('.fa-star');
-    if (starIcon) {
-        if (note.important) {
-            starIcon.classList.add('active');
-            starIcon.parentElement.title = 'Снять важность';
-        } else {
-            starIcon.classList.remove('active');
-            starIcon.parentElement.title = 'Отметить важной';
-        }
-    }
-}
-
-// Начать редактирование заметки
-function startEditNote(noteId) {
-    const note = notes.find(n => n.id == noteId);
-    if (!note) return;
-    
-    editingNoteId = noteId;
-    noteTitle.value = note.title;
-    noteContent.value = note.content;
-    
-    saveBtn.textContent = 'Обновить';
-    if (cancelBtn) cancelBtn.style.display = 'inline-block';
-    
-    // Прокручиваем к форме
-    document.querySelector('.note-form')?.scrollIntoView({ behavior: 'smooth' });
-}
-
-// Сохранить или обновить заметку
-async function saveOrUpdateNote() {
+// Сохранить новую заметку
+async function saveNote() {
     const title = noteTitle.value.trim();
     const content = noteContent.value.trim();
     
@@ -279,96 +259,97 @@ async function saveOrUpdateNote() {
     }
     
     try {
-        if (editingNoteId) {
-            // Обновление существующей заметки
-            await updateNote(editingNoteId, title, content);
-        } else {
-            // Создание новой заметки
-            await createNote(title, content);
+        console.log('💾 Создание заметки...');
+        
+        const response = await fetch(`${API_BASE}/api/notes`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                title: title,
+                content: content,
+                tags: [],
+                important: false
+            })
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Ошибка ${response.status}: ${errorText}`);
         }
+        
+        const result = await response.json();
+        console.log('✅ Заметка создана:', result);
+        
+        // Очищаем форму
+        noteTitle.value = '';
+        noteContent.value = '';
+        
+        // Перезагружаем заметки
+        loadNotes();
+        
+        showMessage('Заметка создана', 'success');
+        
     } catch (error) {
-        console.error('❌ Ошибка сохранения:', error);
-        showMessage('Не удалось сохранить заметку', 'error');
+        console.error('❌ Ошибка:', error);
+        showMessage('Не удалось создать заметку', 'error');
     }
-}
-
-// Создать заметку
-async function createNote(title, content) {
-    console.log('💾 Создание новой заметки...');
-    
-    const noteData = {
-        title,
-        content,
-        tags: [],
-        important: false
-    };
-    
-    const response = await fetch(`${API_BASE}/api/notes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(noteData)
-    });
-    
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    console.log('✅ Заметка создана:', result);
-    
-    cancelEdit();
-    loadNotes();
-    showMessage('Заметка создана', 'success');
 }
 
 // Обновить заметку
-async function updateNote(noteId, title, content) {
-    console.log(`✏️ Обновление заметки ${noteId}...`);
+async function updateNote(noteId) {
+    const title = noteTitle.value.trim();
+    const content = noteContent.value.trim();
     
-    const noteData = {
-        title,
-        content,
-        tags: [],
-        important: false
-    };
-    
-    const response = await fetch(`${API_BASE}/api/notes/${noteId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(noteData)
-    });
-    
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+    if (!title || !content) {
+        showMessage('Заполните заголовок и текст', 'error');
+        return;
     }
     
-    const result = await response.json();
-    console.log('✅ Заметка обновлена:', result);
-    
-    cancelEdit();
-    loadNotes();
-    showMessage('Заметка обновлена', 'success');
-}
-
-// Отменить редактирование
-function cancelEdit() {
-    noteTitle.value = '';
-    noteContent.value = '';
-    editingNoteId = null;
-    saveBtn.textContent = 'Сохранить';
-    if (cancelBtn) cancelBtn.style.display = 'none';
-}
-
-// Установить фильтр
-function setFilter(filter) {
-    currentFilter = filter;
-    
-    // Обновляем активную кнопку
-    filterButtons.forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.filter === filter);
-    });
-    
-    loadNotes();
+    try {
+        console.log(`✏️ Обновление заметки ${noteId}...`);
+        
+        const response = await fetch(`${API_BASE}/api/notes/${noteId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                title: title,
+                content: content,
+                tags: [],
+                important: false
+            })
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Ошибка ${response.status}: ${errorText}`);
+        }
+        
+        const result = await response.json();
+        console.log('✅ Заметка обновлена:', result);
+        
+        // Возвращаем форму в исходное состояние
+        noteTitle.value = '';
+        noteContent.value = '';
+        saveBtn.textContent = 'Сохранить';
+        saveBtn.onclick = saveNote;
+        
+        if (cancelBtn) {
+            cancelBtn.style.display = 'none';
+        }
+        
+        // Перезагружаем заметки
+        loadNotes();
+        
+        showMessage('Заметка обновлена', 'success');
+        
+    } catch (error) {
+        console.error('❌ Ошибка:', error);
+        showMessage('Не удалось обновить заметку', 'error');
+    }
 }
 
 // Вспомогательные функции
@@ -395,69 +376,47 @@ function formatDate(dateString) {
     }
 }
 
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
-
-function showLoading(show) {
-    // Простая реализация - можно улучшить
-    if (show) {
-        console.log('⏳ Загрузка...');
-    }
-}
-
-function showMessage(message, type = 'info') {
-    // Простая реализация - можно заменить на toast
-    const color = type === 'error' ? 'red' : type === 'success' ? 'green' : 'blue';
+function showMessage(message, type) {
+    // Простое уведомление
+    const color = type === 'error' ? '#f44336' : type === 'success' ? '#4CAF50' : '#2196F3';
     console.log(`%c${message}`, `color: ${color}; font-weight: bold;`);
-    alert(message);
+    
+    // Создаем временное уведомление
+    const alertDiv = document.createElement('div');
+    alertDiv.textContent = message;
+    alertDiv.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${color};
+        color: white;
+        padding: 12px 20px;
+        border-radius: 5px;
+        z-index: 1000;
+        animation: slideIn 0.3s ease;
+    `;
+    
+    document.body.appendChild(alertDiv);
+    
+    setTimeout(() => {
+        alertDiv.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => alertDiv.remove(), 300);
+    }, 3000);
 }
 
-// Корзина (дополнительные функции)
-async function loadTrash() {
-    try {
-        const response = await fetch(`${API_BASE}/api/trash`);
-        if (response.ok) {
-            const trashNotes = await response.json();
-            console.log(`🗑️ Заметок в корзине: ${trashNotes.length}`);
-            return trashNotes;
+// Добавляем стили для анимаций
+if (!document.querySelector('#alert-styles')) {
+    const style = document.createElement('style');
+    style.id = 'alert-styles';
+    style.textContent = `
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
         }
-    } catch (error) {
-        console.error('❌ Ошибка загрузки корзины:', error);
-    }
-    return [];
-}
-
-async function restoreNote(noteId) {
-    try {
-        const response = await fetch(`${API_BASE}/api/notes/${noteId}/restore`, {
-            method: 'PATCH'
-        });
-        
-        if (response.ok) {
-            console.log(`✅ Заметка ${noteId} восстановлена`);
-            return true;
+        @keyframes slideOut {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
         }
-    } catch (error) {
-        console.error('❌ Ошибка восстановления:', error);
-    }
-    return false;
+    `;
+    document.head.appendChild(style);
 }
-
-// Экспортируем функции для глобального использования
-window.app = {
-    loadNotes,
-    loadTrash,
-    restoreNote,
-    startEditNote,
-    cancelEdit,
-    setFilter
-};
