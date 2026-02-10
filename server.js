@@ -13,7 +13,7 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // Подключение к базе данных Railway
-console.log('🚀 Запуск приложения...');
+console.log('🚀 Запуск сервера заметок...');
 
 const databaseUrl = process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.MYSQL_PUBLIC_URL;
 let pool;
@@ -52,121 +52,6 @@ if (databaseUrl) {
     });
 }
 
-// Автоматическое исправление таблицы при запуске
-async function fixTableStructure() {
-    if (!pool) {
-        console.log('❌ Пул не создан, пропускаем исправление таблицы');
-        return false;
-    }
-    
-    try {
-        console.log('🛠️ Проверяем структуру таблицы notes...');
-        
-        // Сначала проверим, существует ли таблица
-        const [tables] = await pool.query("SHOW TABLES LIKE 'notes'");
-        
-        if (tables.length === 0) {
-            console.log('📝 Таблица notes не существует, создаём...');
-            await pool.query(`
-                CREATE TABLE notes (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    title VARCHAR(500) NOT NULL,
-                    content TEXT NOT NULL,
-                    tags JSON,
-                    is_important BOOLEAN DEFAULT FALSE,
-                    is_deleted BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            `);
-            console.log('✅ Таблица notes создана');
-            return true;
-        }
-        
-        // Таблица существует, проверяем структуру
-        const [columns] = await pool.query("DESCRIBE notes");
-        const idColumn = columns.find(col => col.Field === 'id');
-        
-        if (!idColumn) {
-            console.log('⚠️ Поле id не найдено, пересоздаём таблицу...');
-            await pool.query("DROP TABLE notes");
-            await pool.query(`
-                CREATE TABLE notes (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    title VARCHAR(500) NOT NULL,
-                    content TEXT NOT NULL,
-                    tags JSON,
-                    is_important BOOLEAN DEFAULT FALSE,
-                    is_deleted BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            `);
-            console.log('✅ Таблица пересоздана');
-            return true;
-        }
-        
-        // Проверяем AUTO_INCREMENT
-        if (!idColumn.Extra || !idColumn.Extra.includes('auto_increment')) {
-            console.log('⚠️ Исправляем поле id...');
-            
-            // Попробуем добавить AUTO_INCREMENT
-            try {
-                await pool.query("ALTER TABLE notes MODIFY id INT AUTO_INCREMENT PRIMARY KEY");
-                console.log('✅ AUTO_INCREMENT добавлен к полю id');
-            } catch (alterError) {
-                console.log('🔄 Не удалось изменить существующее поле, пересоздаём таблицу...');
-                await pool.query("DROP TABLE notes");
-                await pool.query(`
-                    CREATE TABLE notes (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        title VARCHAR(500) NOT NULL,
-                        content TEXT NOT NULL,
-                        tags JSON,
-                        is_important BOOLEAN DEFAULT FALSE,
-                        is_deleted BOOLEAN DEFAULT FALSE,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-                `);
-                console.log('✅ Таблица пересоздана с AUTO_INCREMENT');
-            }
-        } else {
-            console.log('✅ Структура таблицы в порядке');
-        }
-        
-        return true;
-    } catch (error) {
-        console.error('❌ Ошибка проверки структуры:', error.message);
-        
-        // Если ошибка "таблица не существует", создаём её
-        if (error.message.includes("doesn't exist") || error.code === 'ER_NO_SUCH_TABLE') {
-            console.log('🔄 Создаём таблицу notes...');
-            try {
-                await pool.query(`
-                    CREATE TABLE notes (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        title VARCHAR(500) NOT NULL,
-                        content TEXT NOT NULL,
-                        tags JSON,
-                        is_important BOOLEAN DEFAULT FALSE,
-                        is_deleted BOOLEAN DEFAULT FALSE,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-                `);
-                console.log('✅ Таблица notes создана');
-                return true;
-            } catch (createError) {
-                console.error('❌ Не удалось создать таблицу:', createError.message);
-                return false;
-            }
-        }
-        
-        return false;
-    }
-}
-
 // Проверка подключения к БД
 async function checkDatabaseConnection() {
     if (!pool) {
@@ -177,11 +62,23 @@ async function checkDatabaseConnection() {
     try {
         const connection = await pool.getConnection();
         console.log('✅ Успешное подключение к MySQL!');
+        
+        // Создаем таблицу если её нет
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS notes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(500) NOT NULL,
+                content TEXT NOT NULL,
+                tags JSON,
+                is_important BOOLEAN DEFAULT FALSE,
+                is_deleted BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+        
+        console.log('✅ Таблица notes проверена/создана');
         connection.release();
-        
-        // Исправляем структуру таблицы
-        await fixTableStructure();
-        
         return true;
     } catch (error) {
         console.error('❌ Ошибка подключения к БД:', error.message);
@@ -194,14 +91,23 @@ setTimeout(() => {
     checkDatabaseConnection();
 }, 2000);
 
-// API: Получить все заметки (НЕ УДАЛЕННЫЕ)
+// ==================== API ENDPOINTS ====================
+
+// API: Получить все заметки с фильтрацией
 app.get('/api/notes', async (req, res) => {
+    console.log('📥 Получение заметок с фильтрами:', req.query);
+    
     try {
         if (!pool) {
-            return res.status(500).json({ error: 'База данных недоступна' });
+            return res.status(500).json({ 
+                success: false,
+                error: 'База данных недоступна' 
+            });
         }
         
-        const [notes] = await pool.query(`
+        const { filter = 'all', search = '', sort = 'newest' } = req.query;
+        
+        let query = `
             SELECT 
                 id, 
                 title, 
@@ -212,21 +118,64 @@ app.get('/api/notes', async (req, res) => {
                 created_at,
                 updated_at
             FROM notes 
-            WHERE is_deleted = 0 
-            ORDER BY created_at DESC
-        `);
+            WHERE 1=1
+        `;
+        let params = [];
         
+        // Фильтр по статусу
+        if (filter === 'important') {
+            query += ' AND is_important = 1 AND is_deleted = 0';
+        } else if (filter === 'deleted') {
+            query += ' AND is_deleted = 1';
+        } else if (filter === 'all') {
+            query += ' AND is_deleted = 0';
+        }
+        
+        // Поиск
+        if (search) {
+            query += ' AND (title LIKE ? OR content LIKE ?)';
+            params.push(`%${search}%`, `%${search}%`);
+        }
+        
+        // Сортировка
+        switch(sort) {
+            case 'newest':
+                query += ' ORDER BY updated_at DESC';
+                break;
+            case 'oldest':
+                query += ' ORDER BY updated_at ASC';
+                break;
+            case 'alpha-asc':
+                query += ' ORDER BY title ASC';
+                break;
+            case 'alpha-desc':
+                query += ' ORDER BY title DESC';
+                break;
+            default:
+                query += ' ORDER BY updated_at DESC';
+        }
+        
+        const [notes] = await pool.execute(query, params);
+        
+        console.log(`✅ Отправлено ${notes.length} заметок`);
         res.json(notes);
+        
     } catch (error) {
         console.error('❌ Ошибка получения заметок:', error.message);
-        res.status(500).json({ error: 'Ошибка сервера', details: error.message });
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка сервера',
+            details: error.message 
+        });
     }
 });
 
-// API: Получить заметку по ID
+// API: Получить одну заметку по ID
 app.get('/api/notes/:id', async (req, res) => {
+    console.log('📄 Получение заметки:', req.params.id);
+    
     try {
-        const [rows] = await pool.query(`
+        const [rows] = await pool.execute(`
             SELECT 
                 id, 
                 title, 
@@ -240,41 +189,45 @@ app.get('/api/notes/:id', async (req, res) => {
         `, [req.params.id]);
         
         if (rows.length === 0) {
-            return res.status(404).json({ error: 'Заметка не найдена' });
+            return res.status(404).json({ 
+                success: false,
+                error: 'Заметка не найдена' 
+            });
         }
         
         res.json(rows[0]);
     } catch (error) {
-        console.error('Ошибка получения заметки:', error);
-        res.status(500).json({ error: 'Ошибка сервера' });
+        console.error('❌ Ошибка получения заметки:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка сервера' 
+        });
     }
 });
 
-// API: Создать заметку (С АВТОМАТИЧЕСКИМ ИСПРАВЛЕНИЕМ ОШИБОК)
+// API: Создать заметку
 app.post('/api/notes', async (req, res) => {
-    console.log('📝 Запрос на создание заметки:', req.body);
+    console.log('📝 Создание заметки:', req.body);
     
     try {
-        if (!pool) {
-            return res.status(500).json({ error: 'База данных недоступна' });
-        }
-        
         const { title, content, tags = [], important = false } = req.body;
         
         if (!title || !content) {
-            return res.status(400).json({ error: 'Заголовок и текст обязательны' });
+            return res.status(400).json({ 
+                success: false,
+                error: 'Заголовок и текст обязательны' 
+            });
         }
         
-        // Пытаемся создать заметку
         const [result] = await pool.execute(
             'INSERT INTO notes (title, content, tags, is_important) VALUES (?, ?, ?, ?)',
             [title, content, JSON.stringify(tags), important ? 1 : 0]
         );
         
-        console.log('✅ Заметка сохранена, ID:', result.insertId);
+        console.log('✅ Заметка создана, ID:', result.insertId);
         
         // Получаем созданную заметку
-        const [rows] = await pool.query(`
+        const [rows] = await pool.execute(`
             SELECT 
                 id, 
                 title, 
@@ -295,79 +248,11 @@ app.post('/api/notes', async (req, res) => {
         
     } catch (error) {
         console.error('❌ Ошибка создания заметки:', error.message);
-        
-        // Ошибка "нет значения по умолчанию для id" - исправляем таблицу
-        if (error.message.includes("doesn't have a default value") || error.code === 'ER_NO_DEFAULT_FOR_FIELD') {
-            console.log('🔄 Исправляем структуру таблицы...');
-            
-            try {
-                // Сначала попробуем добавить AUTO_INCREMENT
-                await pool.query("ALTER TABLE notes MODIFY id INT AUTO_INCREMENT PRIMARY KEY");
-                console.log('✅ AUTO_INCREMENT добавлен');
-                
-                // Пробуем создать заметку снова
-                const [result] = await pool.execute(
-                    'INSERT INTO notes (title, content, tags, is_important) VALUES (?, ?, ?, ?)',
-                    [title, content, JSON.stringify(tags), important ? 1 : 0]
-                );
-                
-                console.log('✅ Заметка сохранена после исправления, ID:', result.insertId);
-                
-                res.status(201).json({
-                    success: true,
-                    id: result.insertId,
-                    message: 'Заметка создана (таблица была исправлена)'
-                });
-                
-            } catch (fixError) {
-                console.error('❌ Не удалось исправить таблицу:', fixError.message);
-                
-                // Экстренный вариант: создаём таблицу заново
-                try {
-                    await pool.query("DROP TABLE IF EXISTS notes");
-                    await pool.query(`
-                        CREATE TABLE notes (
-                            id INT AUTO_INCREMENT PRIMARY KEY,
-                            title VARCHAR(500) NOT NULL,
-                            content TEXT NOT NULL,
-                            tags JSON,
-                            is_important BOOLEAN DEFAULT FALSE,
-                            is_deleted BOOLEAN DEFAULT FALSE,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-                    `);
-                    
-                    // Создаём заметку в новой таблице
-                    const [result] = await pool.execute(
-                        'INSERT INTO notes (title, content, tags, is_important) VALUES (?, ?, ?, ?)',
-                        [title, content, JSON.stringify(tags), important ? 1 : 0]
-                    );
-                    
-                    console.log('✅ Таблица пересоздана и заметка сохранена, ID:', result.insertId);
-                    
-                    res.status(201).json({
-                        success: true,
-                        id: result.insertId,
-                        message: 'Заметка создана (таблица была пересоздана)'
-                    });
-                    
-                } catch (finalError) {
-                    res.status(500).json({
-                        success: false,
-                        error: 'Не удалось исправить базу данных',
-                        details: finalError.message
-                    });
-                }
-            }
-        } else {
-            // Другие ошибки
-            res.status(500).json({ 
-                error: 'Ошибка базы данных',
-                details: error.message,
-                code: error.code
-            });
-        }
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка базы данных',
+            details: error.message 
+        });
     }
 });
 
@@ -379,18 +264,21 @@ app.put('/api/notes/:id', async (req, res) => {
         const { title, content, tags = [], important = false } = req.body;
         
         if (!title || !content) {
-            return res.status(400).json({ error: 'Заголовок и текст обязательны' });
+            return res.status(400).json({ 
+                success: false,
+                error: 'Заголовок и текст обязательны' 
+            });
         }
         
         await pool.execute(
-            'UPDATE notes SET title = ?, content = ?, tags = ?, is_important = ? WHERE id = ?',
+            'UPDATE notes SET title = ?, content = ?, tags = ?, is_important = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
             [title, content, JSON.stringify(tags), important ? 1 : 0, req.params.id]
         );
         
         console.log('✅ Заметка обновлена');
         
         // Получаем обновлённую заметку
-        const [rows] = await pool.query(`
+        const [rows] = await pool.execute(`
             SELECT 
                 id, 
                 title, 
@@ -410,27 +298,6 @@ app.put('/api/notes/:id', async (req, res) => {
         });
     } catch (error) {
         console.error('❌ Ошибка обновления заметки:', error.message);
-        res.status(500).json({ error: 'Ошибка сервера', details: error.message });
-    }
-});
-
-// API: Удалить заметку (в корзину)
-app.delete('/api/notes/:id', async (req, res) => {
-    console.log('🗑️ Удаление заметки в корзину:', req.params.id);
-    
-    try {
-        await pool.execute(
-            'UPDATE notes SET is_deleted = 1 WHERE id = ?',
-            [req.params.id]
-        );
-        
-        console.log('✅ Заметка перемещена в корзину');
-        res.json({ 
-            success: true,
-            message: 'Заметка перемещена в корзину' 
-        });
-    } catch (error) {
-        console.error('❌ Ошибка удаления:', error.message);
         res.status(500).json({ 
             success: false,
             error: 'Ошибка сервера',
@@ -439,32 +306,7 @@ app.delete('/api/notes/:id', async (req, res) => {
     }
 });
 
-// API: Восстановить из корзины
-app.patch('/api/notes/:id/restore', async (req, res) => {
-    console.log('♻️ Восстановление заметки:', req.params.id);
-    
-    try {
-        await pool.execute(
-            'UPDATE notes SET is_deleted = 0 WHERE id = ?',
-            [req.params.id]
-        );
-        
-        console.log('✅ Заметка восстановлена');
-        res.json({ 
-            success: true,
-            message: 'Заметка восстановлена' 
-        });
-    } catch (error) {
-        console.error('❌ Ошибка восстановления:', error.message);
-        res.status(500).json({ 
-            success: false,
-            error: 'Ошибка сервера',
-            details: error.message 
-        });
-    }
-});
-
-// API: Изменить важность
+// API: Изменить важность заметки
 app.patch('/api/notes/:id/important', async (req, res) => {
     console.log('⭐ Изменение важности:', req.params.id, req.body);
     
@@ -479,11 +321,12 @@ app.patch('/api/notes/:id/important', async (req, res) => {
         }
         
         await pool.execute(
-            'UPDATE notes SET is_important = ? WHERE id = ?',
+            'UPDATE notes SET is_important = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
             [important ? 1 : 0, req.params.id]
         );
         
-        console.log(`✅ Заметка отмечена как ${important ? 'важная' : 'не важная'}`);
+        console.log(`✅ Заметка ${important ? 'отмечена важной' : 'снята с важных'}`);
+        
         res.json({ 
             success: true,
             message: `Заметка ${important ? 'важная' : 'не важная'}` 
@@ -498,14 +341,64 @@ app.patch('/api/notes/:id/important', async (req, res) => {
     }
 });
 
-// API: Получить корзину (удаленные заметки)
-app.get('/api/trash', async (req, res) => {
+// API: Удалить заметку (в корзину)
+app.delete('/api/notes/:id', async (req, res) => {
+    console.log('🗑️ Удаление заметки в корзину:', req.params.id);
+    
     try {
-        if (!pool) {
-            return res.status(500).json({ error: 'База данных недоступна' });
-        }
+        await pool.execute(
+            'UPDATE notes SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [req.params.id]
+        );
         
-        const [notes] = await pool.query(`
+        console.log('✅ Заметка перемещена в корзину');
+        
+        res.json({ 
+            success: true,
+            message: 'Заметка перемещена в корзину' 
+        });
+    } catch (error) {
+        console.error('❌ Ошибка удаления:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка сервера',
+            details: error.message 
+        });
+    }
+});
+
+// API: Восстановить заметку из корзины
+app.patch('/api/notes/:id/restore', async (req, res) => {
+    console.log('♻️ Восстановление заметки:', req.params.id);
+    
+    try {
+        await pool.execute(
+            'UPDATE notes SET is_deleted = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [req.params.id]
+        );
+        
+        console.log('✅ Заметка восстановлена');
+        
+        res.json({ 
+            success: true,
+            message: 'Заметка восстановлена' 
+        });
+    } catch (error) {
+        console.error('❌ Ошибка восстановления:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка сервера',
+            details: error.message 
+        });
+    }
+});
+
+// API: Получить корзину
+app.get('/api/trash', async (req, res) => {
+    console.log('🗑️ Получение корзины');
+    
+    try {
+        const [notes] = await pool.execute(`
             SELECT 
                 id, 
                 title, 
@@ -520,10 +413,15 @@ app.get('/api/trash', async (req, res) => {
             ORDER BY updated_at DESC
         `);
         
+        console.log(`✅ В корзине ${notes.length} заметок`);
         res.json(notes);
     } catch (error) {
         console.error('❌ Ошибка получения корзины:', error.message);
-        res.status(500).json({ error: 'Ошибка сервера', details: error.message });
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка сервера',
+            details: error.message 
+        });
     }
 });
 
@@ -535,6 +433,7 @@ app.delete('/api/trash/clear', async (req, res) => {
         await pool.execute('DELETE FROM notes WHERE is_deleted = 1');
         
         console.log('✅ Корзина очищена');
+        
         res.json({ 
             success: true,
             message: 'Корзина очищена' 
@@ -549,37 +448,6 @@ app.delete('/api/trash/clear', async (req, res) => {
     }
 });
 
-// API: Принудительное исправление таблицы
-app.post('/api/fix-database', async (req, res) => {
-    try {
-        if (!pool) {
-            return res.status(500).json({ error: 'База данных недоступна' });
-        }
-        
-        await fixTableStructure();
-        
-        // Тестовый INSERT
-        const [result] = await pool.query(
-            "INSERT INTO notes (title, content) VALUES (?, ?)",
-            ["Таблица исправлена", "Теперь всё должно работать!"]
-        );
-        
-        res.json({
-            success: true,
-            message: 'Таблица notes проверена и исправлена',
-            test_id: result.insertId,
-            note: 'Попробуйте создать заметку на сайте'
-        });
-        
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            sql: error.sql
-        });
-    }
-});
-
 // API: Получить информацию о БД
 app.get('/api/db-info', async (req, res) => {
     try {
@@ -590,11 +458,9 @@ app.get('/api/db-info', async (req, res) => {
             });
         }
         
-        // Проверяем таблицы
         const [tables] = await pool.query("SHOW TABLES");
         const tableNames = tables.map(t => Object.values(t)[0]);
         
-        // Проверяем таблицу notes
         let notesStructure = [];
         let notesCount = 0;
         
@@ -612,8 +478,7 @@ app.get('/api/db-info', async (req, res) => {
             notes: {
                 exists: tableNames.includes('notes'),
                 structure: notesStructure,
-                count: notesCount,
-                id_column: notesStructure.find(col => col.Field === 'id')
+                count: notesCount
             }
         });
         
@@ -625,29 +490,33 @@ app.get('/api/db-info', async (req, res) => {
     }
 });
 
-// API: Тест всех операций
+// API: Тест операций
 app.get('/api/test-operations/:id', async (req, res) => {
     const noteId = req.params.id;
+    console.log('🧪 Тест операций для заметки:', noteId);
     
     try {
-        // 1. Получаем текущее состояние
+        // Получаем текущее состояние
         const [note] = await pool.query('SELECT * FROM notes WHERE id = ?', [noteId]);
         
         if (note.length === 0) {
-            return res.json({ error: 'Заметка не найдена' });
+            return res.json({ 
+                success: false,
+                error: 'Заметка не найдена' 
+            });
         }
         
         const currentNote = note[0];
         
-        // 2. Тест изменения важности
+        // Тест изменения важности
         const newImportant = currentNote.is_important === 0 ? 1 : 0;
         await pool.query('UPDATE notes SET is_important = ? WHERE id = ?', [newImportant, noteId]);
         
-        // 3. Тест удаления/восстановления
+        // Тест удаления/восстановления
         const newDeleted = currentNote.is_deleted === 0 ? 1 : 0;
         await pool.query('UPDATE notes SET is_deleted = ? WHERE id = ?', [newDeleted, noteId]);
         
-        // 4. Получаем обновлённую заметку
+        // Получаем обновлённую заметку
         const [updatedNote] = await pool.query('SELECT * FROM notes WHERE id = ?', [noteId]);
         
         res.json({
@@ -668,26 +537,38 @@ app.get('/api/test-operations/:id', async (req, res) => {
         });
         
     } catch (error) {
+        console.error('❌ Ошибка теста операций:', error.message);
         res.status(500).json({
             success: false,
-            error: error.message,
-            sql: error.sql
+            error: error.message
         });
     }
 });
 
-// Главная страница
-app.get('/', (req, res) => {
+// API: Проверка здоровья
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'healthy',
+        server: 'running',
+        timestamp: new Date().toISOString(),
+        database: pool ? 'connected' : 'disconnected'
+    });
+});
+
+// Все остальные запросы - отдаём index.html
+app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Старт сервера
+// Запуск сервера
 app.listen(PORT, () => {
-    console.log(`🚀 Сервер запущен на порту ${PORT}`);
-    console.log(`📡 Ссылка: https://ваш-проект.railway.app`);
-    console.log(`🔧 Проверка API:`);
-    console.log(`   • Все заметки: /api/notes`);
-    console.log(`   • Инфо о БД: /api/db-info`);
-    console.log(`   • Корзина: /api/trash`);
-    console.log(`   • Тест операций: /api/test-operations/1`);
+    console.log(`✅ Сервер запущен на порту ${PORT}`);
+    console.log(`🌐 Сайт доступен по вашему Railway домену`);
+    console.log(`🔧 API Endpoints:`);
+    console.log(`   • GET    /api/notes          - все заметки`);
+    console.log(`   • POST   /api/notes          - создать заметку`);
+    console.log(`   • PUT    /api/notes/:id      - обновить заметку`);
+    console.log(`   • PATCH  /api/notes/:id/important - изменить важность`);
+    console.log(`   • DELETE /api/notes/:id      - удалить в корзину`);
+    console.log(`   • PATCH  /api/notes/:id/restore - восстановить`);
 });
