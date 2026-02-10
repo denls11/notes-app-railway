@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentSort = '';
     let currentSearch = '';
     let selectedNoteId = null;
+    let confirmCallback = null;
 
     loadNotes();
     setupEventListeners();
@@ -385,20 +386,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function deleteNotePermanently(id) {
-    try {
-        const response = await fetch(`${API_URL}/notes/${id}/permanent`, {
-            method: 'DELETE'
-        });
-        
-        if (!response.ok) throw new Error('Ошибка удаления');
-        
-        showNotification('Заметка удалена навсегда', 'success');
-        await loadNotes();
-    } catch (error) {
-        console.error('Ошибка удаления:', error);
-        showNotification('Ошибка при удалении заметки', 'error');
+        try {
+            const response = await fetch(`${API_URL}/notes/${id}/permanent`, {
+                method: 'DELETE'
+            });
+            
+            if (!response.ok) throw new Error('Ошибка удаления');
+            
+            showNotification('Заметка удалена навсегда', 'success');
+            await loadNotes();
+        } catch (error) {
+            console.error('Ошибка удаления:', error);
+            showNotification('Ошибка при удалении заметки', 'error');
+        }
     }
-}
 
     async function restoreNote(id) {
         try {
@@ -520,24 +521,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function clearAllNotes() {
-    try {
-        // Удаляем все заметки (и обычные, и из корзины)
-        const response = await fetch(`${API_URL}/notes/clear-all`, {
-            method: 'DELETE'
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Ошибка очистки');
+        try {
+            console.log('Отправка запроса на очистку всех заметок...');
+            
+            // Удаляем все заметки (и обычные, и из корзины)
+            const response = await fetch(`${API_URL}/notes/clear-all`, {
+                method: 'DELETE'
+            });
+            
+            console.log('Статус ответа:', response.status);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Текст ошибки:', errorText);
+                throw new Error(`Ошибка сервера: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            console.log('Результат:', result);
+            
+            showNotification('Все заметки удалены', 'success');
+            await loadNotes();
+        } catch (error) {
+            console.error('Ошибка очистки:', error);
+            showNotification(`Ошибка при очистке заметок: ${error.message}`, 'error');
         }
-        
-        showNotification('Все заметки удалены', 'success');
-        await loadNotes();
-    } catch (error) {
-        console.error('Ошибка очистки:', error);
-        showNotification(`Ошибка при очистке заметок: ${error.message}`, 'error');
     }
-}
+
     async function exportNotes() {
         try {
             const response = await fetch(`${API_URL}/notes`);
@@ -712,9 +722,13 @@ document.addEventListener('DOMContentLoaded', () => {
             clearAllModal.classList.add('active');
         });
         
-        confirmClearAllBtn.addEventListener('click', () => {
-            clearAllNotes();
-            clearAllModal.classList.remove('active');
+        confirmClearAllBtn.addEventListener('click', async () => {
+            try {
+                clearAllModal.classList.remove('active');
+                await clearAllNotes();
+            } catch (error) {
+                console.error('Ошибка при очистке:', error);
+            }
         });
         
         cancelClearAllBtn.addEventListener('click', () => {
@@ -776,4 +790,19 @@ document.addEventListener('DOMContentLoaded', () => {
             ? '<i class="fas fa-sun"></i> Тема' 
             : '<i class="fas fa-moon"></i> Тема';
     }
+    
+    // Тестовая функция для отладки
+    window.testClearAll = async function() {
+        console.log('Тестируем очистку...');
+        try {
+            const response = await fetch(`${API_URL}/notes/clear-all`, {
+                method: 'DELETE'
+            });
+            console.log('Статус:', response.status);
+            const data = await response.json();
+            console.log('Ответ:', data);
+        } catch (error) {
+            console.error('Ошибка:', error);
+        }
+    };
 });
