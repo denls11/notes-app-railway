@@ -1,574 +1,289 @@
 const express = require('express');
-const mysql = require('mysql2/promise');
+const mongoose = require('mongoose');
 const cors = require('cors');
-const path = require('path');
-const url = require('url');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
 
-// Подключение к базе данных Railway
-console.log('🚀 Запуск сервера заметок...');
+// Подключение к MongoDB
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/notes', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+});
 
-const databaseUrl = process.env.DATABASE_URL || process.env.MYSQL_URL || process.env.MYSQL_PUBLIC_URL;
-let pool;
+// Схема заметки
+const noteSchema = new mongoose.Schema({
+    title: { type: String, required: true },
+    content: { type: String, required: true },
+    tags: [{ type: String }],
+    is_important: { type: Boolean, default: false },
+    is_deleted: { type: Boolean, default: false },
+    created_at: { type: Date, default: Date.now },
+    updated_at: { type: Date, default: Date.now }
+});
 
-if (databaseUrl) {
-    try {
-        const dbUrl = new URL(databaseUrl);
-        const config = {
-            host: dbUrl.hostname,
-            port: parseInt(dbUrl.port) || 3306,
-            user: dbUrl.username || 'root',
-            password: dbUrl.password || '',
-            database: dbUrl.pathname.replace('/', '') || 'railway',
-            waitForConnections: true,
-            connectionLimit: 10,
-            queueLimit: 0
-        };
-        
-        console.log('🔗 Подключение к MySQL:', config.host);
-        pool = mysql.createPool(config);
-        
-    } catch (error) {
-        console.error('❌ Ошибка парсинга URL:', error.message);
-        pool = null;
-    }
-} else {
-    pool = mysql.createPool({
-        host: process.env.MYSQLHOST || 'localhost',
-        user: process.env.MYSQLUSER || 'root',
-        password: process.env.MYSQLPASSWORD || '',
-        database: process.env.MYSQLDATABASE || 'railway',
-        port: parseInt(process.env.MYSQLPORT) || 3306,
-        waitForConnections: true,
-        connectionLimit: 10,
-        queueLimit: 0
-    });
-}
+const Note = mongoose.model('Note', noteSchema);
 
-// Проверка подключения к БД
-async function checkDatabaseConnection() {
-    if (!pool) {
-        console.error('❌ Пул соединений не создан');
-        return false;
-    }
-    
-    try {
-        const connection = await pool.getConnection();
-        console.log('✅ Успешное подключение к MySQL!');
-        
-        // Создаем таблицу если её нет
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS notes (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                title VARCHAR(500) NOT NULL,
-                content TEXT NOT NULL,
-                tags JSON,
-                is_important BOOLEAN DEFAULT FALSE,
-                is_deleted BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        `);
-        
-        console.log('✅ Таблица notes проверена/создана');
-        connection.release();
-        return true;
-    } catch (error) {
-        console.error('❌ Ошибка подключения к БД:', error.message);
-        return false;
-    }
-}
+// ========== API ENDPOINTS ==========
 
-// Проверяем подключение при старте
-setTimeout(() => {
-    checkDatabaseConnection();
-}, 2000);
-
-// ==================== API ENDPOINTS ====================
-
-// API: Получить все заметки с фильтрацией
+// 1. Получить все заметки (с фильтрацией)
 app.get('/api/notes', async (req, res) => {
-    console.log('📥 Получение заметок с фильтрами:', req.query);
-    
     try {
-        if (!pool) {
-            return res.status(500).json({ 
-                success: false,
-                error: 'База данных недоступна' 
-            });
-        }
+        const { filter, search, sort } = req.query;
+        let query = {};
         
-        const { filter = 'all', search = '', sort = 'newest' } = req.query;
-        
-        let query = `
-            SELECT 
-                id, 
-                title, 
-                content, 
-                tags,
-                is_important as important,
-                is_deleted as deleted,
-                created_at,
-                updated_at
-            FROM notes 
-            WHERE 1=1
-        `;
-        let params = [];
-        
-        // Фильтр по статусу
+        // Фильтрация
         if (filter === 'important') {
-            query += ' AND is_important = 1 AND is_deleted = 0';
+            query.is_important = true;
+            query.is_deleted = false;
         } else if (filter === 'deleted') {
-            query += ' AND is_deleted = 1';
+            query.is_deleted = true;
         } else if (filter === 'all') {
-            query += ' AND is_deleted = 0';
+            // Все заметки, включая удаленные
+        } else {
+            query.is_deleted = false; // По умолчанию только активные
         }
         
         // Поиск
         if (search) {
-            query += ' AND (title LIKE ? OR content LIKE ?)';
-            params.push(`%${search}%`, `%${search}%`);
+            query.$or = [
+                { title: { $regex: search, $options: 'i' } },
+                { content: { $regex: search, $options: 'i' } },
+                { tags: { $regex: search, $options: 'i' } }
+            ];
         }
+        
+        let notes = await Note.find(query);
         
         // Сортировка
-        switch(sort) {
-            case 'newest':
-                query += ' ORDER BY updated_at DESC';
-                break;
-            case 'oldest':
-                query += ' ORDER BY updated_at ASC';
-                break;
-            case 'alpha-asc':
-                query += ' ORDER BY title ASC';
-                break;
-            case 'alpha-desc':
-                query += ' ORDER BY title DESC';
-                break;
-            default:
-                query += ' ORDER BY updated_at DESC';
+        if (sort) {
+            switch (sort) {
+                case 'newest':
+                    notes = notes.sort((a, b) => b.updated_at - a.updated_at);
+                    break;
+                case 'oldest':
+                    notes = notes.sort((a, b) => a.updated_at - b.updated_at);
+                    break;
+                case 'alpha-asc':
+                    notes = notes.sort((a, b) => a.title.localeCompare(b.title));
+                    break;
+                case 'alpha-desc':
+                    notes = notes.sort((a, b) => b.title.localeCompare(a.title));
+                    break;
+                case 'important':
+                    notes = notes.sort((a, b) => (b.is_important ? 1 : 0) - (a.is_important ? 1 : 0));
+                    break;
+            }
         }
         
-        const [notes] = await pool.execute(query, params);
-        
-        console.log(`✅ Отправлено ${notes.length} заметок`);
         res.json(notes);
-        
     } catch (error) {
-        console.error('❌ Ошибка получения заметок:', error.message);
-        res.status(500).json({ 
-            success: false,
-            error: 'Ошибка сервера',
-            details: error.message 
-        });
+        res.status(500).json({ error: error.message });
     }
 });
 
-// API: Получить одну заметку по ID
+// 2. Получить одну заметку
 app.get('/api/notes/:id', async (req, res) => {
-    console.log('📄 Получение заметки:', req.params.id);
-    
     try {
-        const [rows] = await pool.execute(`
-            SELECT 
-                id, 
-                title, 
-                content, 
-                tags,
-                is_important as important,
-                is_deleted as deleted,
-                created_at,
-                updated_at
-            FROM notes WHERE id = ?
-        `, [req.params.id]);
-        
-        if (rows.length === 0) {
-            return res.status(404).json({ 
-                success: false,
-                error: 'Заметка не найдена' 
-            });
-        }
-        
-        res.json(rows[0]);
+        const note = await Note.findById(req.params.id);
+        if (!note) return res.status(404).json({ error: 'Note not found' });
+        res.json(note);
     } catch (error) {
-        console.error('❌ Ошибка получения заметки:', error.message);
-        res.status(500).json({ 
-            success: false,
-            error: 'Ошибка сервера' 
-        });
+        res.status(500).json({ error: error.message });
     }
 });
 
-// API: Создать заметку
+// 3. Создать заметку
 app.post('/api/notes', async (req, res) => {
-    console.log('📝 Создание заметки:', req.body);
-    
     try {
-        const { title, content, tags = [], important = false } = req.body;
+        const { title, content, tags, is_important } = req.body;
         
         if (!title || !content) {
-            return res.status(400).json({ 
-                success: false,
-                error: 'Заголовок и текст обязательны' 
-            });
+            return res.status(400).json({ error: 'Title and content are required' });
         }
         
-        const [result] = await pool.execute(
-            'INSERT INTO notes (title, content, tags, is_important) VALUES (?, ?, ?, ?)',
-            [title, content, JSON.stringify(tags), important ? 1 : 0]
-        );
-        
-        console.log('✅ Заметка создана, ID:', result.insertId);
-        
-        // Получаем созданную заметку
-        const [rows] = await pool.execute(`
-            SELECT 
-                id, 
-                title, 
-                content, 
-                tags,
-                is_important as important,
-                is_deleted as deleted,
-                created_at,
-                updated_at
-            FROM notes WHERE id = ?
-        `, [result.insertId]);
-        
-        res.status(201).json({
-            success: true,
-            note: rows[0],
-            message: 'Заметка создана'
+        const note = new Note({
+            title,
+            content,
+            tags: tags || [],
+            is_important: is_important || false,
+            is_deleted: false,
+            created_at: Date.now(),
+            updated_at: Date.now()
         });
         
+        await note.save();
+        res.status(201).json(note);
     } catch (error) {
-        console.error('❌ Ошибка создания заметки:', error.message);
-        res.status(500).json({ 
-            success: false,
-            error: 'Ошибка базы данных',
-            details: error.message 
-        });
+        res.status(400).json({ error: error.message });
     }
 });
 
-// API: Обновить заметку
+// 4. Обновить заметку
 app.put('/api/notes/:id', async (req, res) => {
-    console.log('✏️ Обновление заметки:', req.params.id, req.body);
-    
     try {
-        const { title, content, tags = [], important = false } = req.body;
+        const { title, content, tags, is_important } = req.body;
         
         if (!title || !content) {
-            return res.status(400).json({ 
-                success: false,
-                error: 'Заголовок и текст обязательны' 
-            });
+            return res.status(400).json({ error: 'Title and content are required' });
         }
         
-        await pool.execute(
-            'UPDATE notes SET title = ?, content = ?, tags = ?, is_important = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [title, content, JSON.stringify(tags), important ? 1 : 0, req.params.id]
+        const note = await Note.findByIdAndUpdate(
+            req.params.id,
+            {
+                title,
+                content,
+                tags: tags || [],
+                is_important: is_important || false,
+                updated_at: Date.now()
+            },
+            { new: true }
         );
         
-        console.log('✅ Заметка обновлена');
+        if (!note) return res.status(404).json({ error: 'Note not found' });
         
-        // Получаем обновлённую заметку
-        const [rows] = await pool.execute(`
-            SELECT 
-                id, 
-                title, 
-                content, 
-                tags,
-                is_important as important,
-                is_deleted as deleted,
-                created_at,
-                updated_at
-            FROM notes WHERE id = ?
-        `, [req.params.id]);
-        
-        res.json({
-            success: true,
-            note: rows[0],
-            message: 'Заметка обновлена'
-        });
+        res.json(note);
     } catch (error) {
-        console.error('❌ Ошибка обновления заметки:', error.message);
-        res.status(500).json({ 
-            success: false,
-            error: 'Ошибка сервера',
-            details: error.message 
-        });
+        res.status(400).json({ error: error.message });
     }
 });
 
-// API: Изменить важность заметки
+// 5. Удалить в корзину (SOFT DELETE)
+app.delete('/api/notes/:id', async (req, res) => {
+    try {
+        const note = await Note.findByIdAndUpdate(
+            req.params.id,
+            { 
+                is_deleted: true, 
+                updated_at: Date.now() 
+            },
+            { new: true }
+        );
+        
+        if (!note) return res.status(404).json({ error: 'Note not found' });
+        
+        res.json({ 
+            message: 'Note moved to trash', 
+            note 
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 6. ПОЛНОЕ УДАЛЕНИЕ из БД (HARD DELETE) - НОВЫЙ!
+app.delete('/api/notes/:id/permanent', async (req, res) => {
+    try {
+        const note = await Note.findByIdAndDelete(req.params.id);
+        
+        if (!note) return res.status(404).json({ error: 'Note not found' });
+        
+        res.json({ 
+            message: 'Note permanently deleted from database',
+            deletedNote: note
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 7. Восстановить из корзины
+app.patch('/api/notes/:id/restore', async (req, res) => {
+    try {
+        const note = await Note.findByIdAndUpdate(
+            req.params.id,
+            { 
+                is_deleted: false, 
+                updated_at: Date.now() 
+            },
+            { new: true }
+        );
+        
+        if (!note) return res.status(404).json({ error: 'Note not found' });
+        
+        res.json({ 
+            message: 'Note restored from trash', 
+            note 
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 8. Установить/снять важность
 app.patch('/api/notes/:id/important', async (req, res) => {
-    console.log('⭐ Изменение важности:', req.params.id, req.body);
-    
     try {
         const { important } = req.body;
         
-        if (typeof important !== 'boolean') {
+        const note = await Note.findByIdAndUpdate(
+            req.params.id,
+            { 
+                is_important: important, 
+                updated_at: Date.now() 
+            },
+            { new: true }
+        );
+        
+        if (!note) return res.status(404).json({ error: 'Note not found' });
+        
+        res.json({ 
+            message: important ? 'Note marked as important' : 'Note unmarked as important',
+            note 
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 9. ОЧИСТИТЬ ВСЮ КОРЗИНУ (удалить все удаленные заметки) - НОВЫЙ!
+app.delete('/api/notes/trash/empty', async (req, res) => {
+    try {
+        const result = await Note.deleteMany({ is_deleted: true });
+        
+        res.json({ 
+            message: 'Trash emptied successfully',
+            deletedCount: result.deletedCount
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 10. УДАЛИТЬ ВСЕ ЗАМЕТКИ (активные + удаленные) - НОВЫЙ!
+app.delete('/api/notes', async (req, res) => {
+    try {
+        const { confirm } = req.query;
+        
+        if (confirm !== 'true') {
             return res.status(400).json({ 
-                success: false,
-                error: 'Поле important должно быть boolean' 
+                error: 'Confirmation required. Add ?confirm=true to delete all notes' 
             });
         }
         
-        await pool.execute(
-            'UPDATE notes SET is_important = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [important ? 1 : 0, req.params.id]
-        );
-        
-        console.log(`✅ Заметка ${important ? 'отмечена важной' : 'снята с важных'}`);
+        const result = await Note.deleteMany({});
         
         res.json({ 
-            success: true,
-            message: `Заметка ${important ? 'важная' : 'не важная'}` 
+            message: 'All notes deleted permanently',
+            deletedCount: result.deletedCount
         });
     } catch (error) {
-        console.error('❌ Ошибка изменения важности:', error.message);
-        res.status(500).json({ 
-            success: false,
-            error: 'Ошибка сервера',
-            details: error.message 
-        });
+        res.status(500).json({ error: error.message });
     }
 });
 
-// API: Удалить заметку (в корзину)
-app.delete('/api/notes/:id', async (req, res) => {
-    console.log('🗑️ Удаление заметки в корзину:', req.params.id);
-    
-    try {
-        await pool.execute(
-            'UPDATE notes SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [req.params.id]
-        );
-        
-        console.log('✅ Заметка перемещена в корзину');
-        
-        res.json({ 
-            success: true,
-            message: 'Заметка перемещена в корзину' 
-        });
-    } catch (error) {
-        console.error('❌ Ошибка удаления:', error.message);
-        res.status(500).json({ 
-            success: false,
-            error: 'Ошибка сервера',
-            details: error.message 
-        });
-    }
-});
-
-// API: Восстановить заметку из корзины
-app.patch('/api/notes/:id/restore', async (req, res) => {
-    console.log('♻️ Восстановление заметки:', req.params.id);
-    
-    try {
-        await pool.execute(
-            'UPDATE notes SET is_deleted = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [req.params.id]
-        );
-        
-        console.log('✅ Заметка восстановлена');
-        
-        res.json({ 
-            success: true,
-            message: 'Заметка восстановлена' 
-        });
-    } catch (error) {
-        console.error('❌ Ошибка восстановления:', error.message);
-        res.status(500).json({ 
-            success: false,
-            error: 'Ошибка сервера',
-            details: error.message 
-        });
-    }
-});
-
-// API: Получить корзину
-app.get('/api/trash', async (req, res) => {
-    console.log('🗑️ Получение корзины');
-    
-    try {
-        const [notes] = await pool.execute(`
-            SELECT 
-                id, 
-                title, 
-                content, 
-                tags,
-                is_important as important,
-                is_deleted as deleted,
-                created_at,
-                updated_at
-            FROM notes 
-            WHERE is_deleted = 1 
-            ORDER BY updated_at DESC
-        `);
-        
-        console.log(`✅ В корзине ${notes.length} заметок`);
-        res.json(notes);
-    } catch (error) {
-        console.error('❌ Ошибка получения корзины:', error.message);
-        res.status(500).json({ 
-            success: false,
-            error: 'Ошибка сервера',
-            details: error.message 
-        });
-    }
-});
-
-// API: Очистить корзину (удалить навсегда)
-app.delete('/api/trash/clear', async (req, res) => {
-    console.log('🔥 Очистка корзины');
-    
-    try {
-        await pool.execute('DELETE FROM notes WHERE is_deleted = 1');
-        
-        console.log('✅ Корзина очищена');
-        
-        res.json({ 
-            success: true,
-            message: 'Корзина очищена' 
-        });
-    } catch (error) {
-        console.error('❌ Ошибка очистки корзины:', error.message);
-        res.status(500).json({ 
-            success: false,
-            error: 'Ошибка сервера',
-            details: error.message 
-        });
-    }
-});
-
-// API: Получить информацию о БД
-app.get('/api/db-info', async (req, res) => {
-    try {
-        if (!pool) {
-            return res.json({ 
-                status: 'no_pool',
-                message: 'Пул соединений не создан'
-            });
-        }
-        
-        const [tables] = await pool.query("SHOW TABLES");
-        const tableNames = tables.map(t => Object.values(t)[0]);
-        
-        let notesStructure = [];
-        let notesCount = 0;
-        
-        if (tableNames.includes('notes')) {
-            const [structure] = await pool.query("DESCRIBE notes");
-            notesStructure = structure;
-            
-            const [countResult] = await pool.query("SELECT COUNT(*) as count FROM notes");
-            notesCount = countResult[0].count;
-        }
-        
-        res.json({
-            status: 'connected',
-            tables: tableNames,
-            notes: {
-                exists: tableNames.includes('notes'),
-                structure: notesStructure,
-                count: notesCount
-            }
-        });
-        
-    } catch (error) {
-        res.status(500).json({ 
-            status: 'error',
-            message: error.message
-        });
-    }
-});
-
-// API: Тест операций
-app.get('/api/test-operations/:id', async (req, res) => {
-    const noteId = req.params.id;
-    console.log('🧪 Тест операций для заметки:', noteId);
-    
-    try {
-        // Получаем текущее состояние
-        const [note] = await pool.query('SELECT * FROM notes WHERE id = ?', [noteId]);
-        
-        if (note.length === 0) {
-            return res.json({ 
-                success: false,
-                error: 'Заметка не найдена' 
-            });
-        }
-        
-        const currentNote = note[0];
-        
-        // Тест изменения важности
-        const newImportant = currentNote.is_important === 0 ? 1 : 0;
-        await pool.query('UPDATE notes SET is_important = ? WHERE id = ?', [newImportant, noteId]);
-        
-        // Тест удаления/восстановления
-        const newDeleted = currentNote.is_deleted === 0 ? 1 : 0;
-        await pool.query('UPDATE notes SET is_deleted = ? WHERE id = ?', [newDeleted, noteId]);
-        
-        // Получаем обновлённую заметку
-        const [updatedNote] = await pool.query('SELECT * FROM notes WHERE id = ?', [noteId]);
-        
-        res.json({
-            success: true,
-            message: 'Тест операций выполнен',
-            original: {
-                important: currentNote.is_important,
-                deleted: currentNote.is_deleted
-            },
-            updated: {
-                important: updatedNote[0].is_important,
-                deleted: updatedNote[0].is_deleted
-            },
-            operations: {
-                important_toggled: newImportant !== currentNote.is_important,
-                deleted_toggled: newDeleted !== currentNote.is_deleted
-            }
-        });
-        
-    } catch (error) {
-        console.error('❌ Ошибка теста операций:', error.message);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-// API: Проверка здоровья
-app.get('/api/health', (req, res) => {
-    res.json({
-        status: 'healthy',
-        server: 'running',
-        timestamp: new Date().toISOString(),
-        database: pool ? 'connected' : 'disconnected'
-    });
-});
-
-// Все остальные запросы - отдаём index.html
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Запуск сервера
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`✅ Сервер запущен на порту ${PORT}`);
-    console.log(`🌐 Сайт доступен по вашему Railway домену`);
-    console.log(`🔧 API Endpoints:`);
-    console.log(`   • GET    /api/notes          - все заметки`);
-    console.log(`   • POST   /api/notes          - создать заметку`);
-    console.log(`   • PUT    /api/notes/:id      - обновить заметку`);
-    console.log(`   • PATCH  /api/notes/:id/important - изменить важность`);
-    console.log(`   • DELETE /api/notes/:id      - удалить в корзину`);
-    console.log(`   • PATCH  /api/notes/:id/restore - восстановить`);
+    console.log(`Server running on port ${PORT}`);
+    console.log('Available endpoints:');
+    console.log('  GET    /api/notes');
+    console.log('  GET    /api/notes/:id');
+    console.log('  POST   /api/notes');
+    console.log('  PUT    /api/notes/:id');
+    console.log('  DELETE /api/notes/:id (soft delete)');
+    console.log('  DELETE /api/notes/:id/permanent (HARD DELETE)');
+    console.log('  PATCH  /api/notes/:id/restore');
+    console.log('  PATCH  /api/notes/:id/important');
+    console.log('  DELETE /api/notes/trash/empty');
+    console.log('  DELETE /api/notes?confirm=true (delete ALL)');
 });
