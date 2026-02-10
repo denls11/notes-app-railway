@@ -341,14 +341,53 @@ app.patch('/api/notes/:id/important', async (req, res) => {
     }
 });
 
+// API: Очистить ВСЕ заметки (обычные + корзина) - НОВЫЙ ENDPOINT
+app.delete('/api/clear-all', async (req, res) => {
+    console.log('🔥🔥 Очистка ВСЕХ заметок (новый endpoint)');
+    
+    try {
+        if (!pool) {
+            return res.status(500).json({ 
+                success: false,
+                error: 'База данных недоступна' 
+            });
+        }
+        
+        const [result] = await pool.execute('DELETE FROM notes');
+        
+        console.log(`✅ Все заметки удалены, удалено ${result.affectedRows} записей`);
+        
+        res.json({ 
+            success: true,
+            message: 'Все заметки удалены',
+            deletedCount: result.affectedRows
+        });
+    } catch (error) {
+        console.error('❌ Ошибка очистки:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка сервера',
+            details: error.message 
+        });
+    }
+});
+
 // API: Удалить заметку (в корзину)
 app.delete('/api/notes/:id', async (req, res) => {
     console.log('🗑️ Удаление заметки в корзину:', req.params.id);
     
     try {
+        const noteId = parseInt(req.params.id);
+        if (isNaN(noteId)) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Неверный ID заметки' 
+            });
+        }
+        
         await pool.execute(
             'UPDATE notes SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [req.params.id]
+            [noteId]
         );
         
         console.log('✅ Заметка перемещена в корзину');
@@ -372,7 +411,15 @@ app.delete('/api/notes/:id/permanent', async (req, res) => {
     console.log('🔥 Удаление заметки навсегда:', req.params.id);
     
     try {
-        await pool.execute('DELETE FROM notes WHERE id = ?', [req.params.id]);
+        const noteId = parseInt(req.params.id);
+        if (isNaN(noteId)) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Неверный ID заметки' 
+            });
+        }
+        
+        await pool.execute('DELETE FROM notes WHERE id = ?', [noteId]);
         
         console.log('✅ Заметка удалена навсегда');
         
@@ -390,73 +437,22 @@ app.delete('/api/notes/:id/permanent', async (req, res) => {
     }
 });
 
-// API: Очистить ВСЕ заметки (обычные + корзина)
-app.delete('/api/notes/clear-all', async (req, res) => {
-    console.log('🧹 ПРОСТАЯ очистка всех заметок...');
-    
-    try {
-        // 1. Проверяем есть ли пул
-        if (!pool) {
-            console.log('❌ Пул не найден, создаем тестовый ответ');
-            return res.json({ 
-                success: true, 
-                message: 'Пул не инициализирован (тестовый ответ)',
-                deletedCount: 0
-            });
-        }
-        
-        // 2. ПРОСТОЙ запрос без сложной логики
-        console.log('Выполняем DELETE FROM notes...');
-        const sql = 'DELETE FROM notes';
-        const [result] = await pool.query(sql);
-        
-        console.log(`✅ Запрос выполнен. Удалено: ${result.affectedRows}`);
-        
-        // 3. Простой ответ
-        res.json({ 
-            success: true,
-            message: `Удалено ${result.affectedRows} заметок`,
-            deletedCount: result.affectedRows
-        });
-        
-    } catch (error) {
-        console.error('🔥 ОШИБКА в clear-all:', error);
-        
-        // Возвращаем ошибку с подробностями
-        res.status(500).json({
-            success: false,
-            error: 'Ошибка очистки',
-            details: error.message,
-            sqlError: error.sqlMessage,
-            code: error.code
-        });
-    }
-});
-        
-    } catch (error) {
-        console.error('❌ КРИТИЧЕСКАЯ ОШИБКА при очистке:', error);
-        console.error('Код ошибки:', error.code);
-        console.error('Сообщение SQL:', error.sqlMessage);
-        console.error('Полный стек:', error.stack);
-        
-        res.status(500).json({ 
-            success: false,
-            error: 'Внутренняя ошибка сервера',
-            details: error.message,
-            code: error.code || 'UNKNOWN',
-            sqlMessage: error.sqlMessage || 'Нет информации'
-        });
-    }
-});
-
 // API: Восстановить заметку из корзины
 app.patch('/api/notes/:id/restore', async (req, res) => {
     console.log('♻️ Восстановление заметки:', req.params.id);
     
     try {
+        const noteId = parseInt(req.params.id);
+        if (isNaN(noteId)) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Неверный ID заметки' 
+            });
+        }
+        
         await pool.execute(
             'UPDATE notes SET is_deleted = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [req.params.id]
+            [noteId]
         );
         
         console.log('✅ Заметка восстановлена');
@@ -572,61 +568,6 @@ app.get('/api/db-info', async (req, res) => {
     }
 });
 
-// API: Тест операций
-app.get('/api/test-operations/:id', async (req, res) => {
-    const noteId = req.params.id;
-    console.log('🧪 Тест операций для заметки:', noteId);
-    
-    try {
-        // Получаем текущее состояние
-        const [note] = await pool.query('SELECT * FROM notes WHERE id = ?', [noteId]);
-        
-        if (note.length === 0) {
-            return res.json({ 
-                success: false,
-                error: 'Заметка не найдена' 
-            });
-        }
-        
-        const currentNote = note[0];
-        
-        // Тест изменения важности
-        const newImportant = currentNote.is_important === 0 ? 1 : 0;
-        await pool.query('UPDATE notes SET is_important = ? WHERE id = ?', [newImportant, noteId]);
-        
-        // Тест удаления/восстановления
-        const newDeleted = currentNote.is_deleted === 0 ? 1 : 0;
-        await pool.query('UPDATE notes SET is_deleted = ? WHERE id = ?', [newDeleted, noteId]);
-        
-        // Получаем обновлённую заметку
-        const [updatedNote] = await pool.query('SELECT * FROM notes WHERE id = ?', [noteId]);
-        
-        res.json({
-            success: true,
-            message: 'Тест операций выполнен',
-            original: {
-                important: currentNote.is_important,
-                deleted: currentNote.is_deleted
-            },
-            updated: {
-                important: updatedNote[0].is_important,
-                deleted: updatedNote[0].is_deleted
-            },
-            operations: {
-                important_toggled: newImportant !== currentNote.is_important,
-                deleted_toggled: newDeleted !== currentNote.is_deleted
-            }
-        });
-        
-    } catch (error) {
-        console.error('❌ Ошибка теста операций:', error.message);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
 // API: Проверка здоровья
 app.get('/api/health', (req, res) => {
     res.json({
@@ -635,30 +576,12 @@ app.get('/api/health', (req, res) => {
         timestamp: new Date().toISOString(),
         database: pool ? 'connected' : 'disconnected',
         endpoints: {
-            clearAll: 'DELETE /api/notes/clear-all',
+            clearAll: 'DELETE /api/clear-all',
             deletePermanent: 'DELETE /api/notes/:id/permanent',
             deleteToTrash: 'DELETE /api/notes/:id',
             restore: 'PATCH /api/notes/:id/restore'
         }
     });
-});
-
-// API: Тест очистки
-app.get('/api/test-clear', async (req, res) => {
-    try {
-        if (!pool) {
-            return res.status(500).json({ error: 'Нет подключения к БД' });
-        }
-        
-        const [result] = await pool.execute('DELETE FROM notes');
-        res.json({ 
-            success: true, 
-            message: `Удалено ${result.affectedRows} заметок`,
-            details: 'Тестовый endpoint для проверки очистки'
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
 });
 
 // Все остальные запросы - отдаём index.html
@@ -675,11 +598,10 @@ app.listen(PORT, () => {
     console.log(`   • POST   /api/notes          - создать заметку`);
     console.log(`   • PUT    /api/notes/:id      - обновить заметку`);
     console.log(`   • PATCH  /api/notes/:id/important - изменить важность`);
+    console.log(`   • DELETE /api/clear-all      - очистить ВСЁ (новый!)`);
     console.log(`   • DELETE /api/notes/:id      - удалить в корзину`);
     console.log(`   • DELETE /api/notes/:id/permanent - удалить навсегда`);
     console.log(`   • PATCH  /api/notes/:id/restore - восстановить`);
-    console.log(`   • DELETE /api/notes/clear-all - очистить всё`);
     console.log(`   • DELETE /api/trash/clear    - очистить корзину`);
     console.log(`   • GET    /api/health         - проверка здоровья`);
-    console.log(`   • GET    /api/test-clear     - тест очистки`);
 });
