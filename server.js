@@ -392,31 +392,46 @@ app.delete('/api/notes/:id/permanent', async (req, res) => {
 
 // API: Очистить ВСЕ заметки (обычные + корзина)
 app.delete('/api/notes/clear-all', async (req, res) => {
-    console.log('🔥🔥 Очистка ВСЕХ заметок');
+    console.log('🧹 Очистка ВСЕХ заметок...');
     
     try {
+        // Проверяем подключение к БД
         if (!pool) {
+            console.error('❌ Пул соединений не создан!');
             return res.status(500).json({ 
                 success: false,
-                error: 'База данных недоступна' 
+                error: 'База данных недоступна',
+                details: 'Пул соединений MySQL не инициализирован'
             });
         }
         
+        console.log('✅ Пул соединений доступен, начинаем очистку...');
+        
+        // Простой DELETE запрос
         const [result] = await pool.execute('DELETE FROM notes');
         
-        console.log(`✅ Все заметки удалены, удалено ${result.affectedRows} записей`);
+        console.log(`✅ Успешно! Удалено ${result.affectedRows} заметок`);
         
+        // Возвращаем успешный ответ
         res.json({ 
             success: true,
-            message: 'Все заметки удалены',
-            deletedCount: result.affectedRows
+            message: `Все заметки удалены (${result.affectedRows} шт.)`,
+            deletedCount: result.affectedRows,
+            timestamp: new Date().toISOString()
         });
+        
     } catch (error) {
-        console.error('❌ Ошибка очистки:', error.message);
+        console.error('❌ КРИТИЧЕСКАЯ ОШИБКА при очистке:', error);
+        console.error('Код ошибки:', error.code);
+        console.error('Сообщение SQL:', error.sqlMessage);
+        console.error('Полный стек:', error.stack);
+        
         res.status(500).json({ 
             success: false,
-            error: 'Ошибка сервера',
-            details: error.message 
+            error: 'Внутренняя ошибка сервера',
+            details: error.message,
+            code: error.code || 'UNKNOWN',
+            sqlMessage: error.sqlMessage || 'Нет информации'
         });
     }
 });
