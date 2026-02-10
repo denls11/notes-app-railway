@@ -751,6 +751,87 @@ document.addEventListener('DOMContentLoaded', () => {
         return div.innerHTML;
     }
 
+    function setupKeyboardShortcuts() {
+        console.log('⌨️ Настройка горячих клавиш...');
+        
+        document.addEventListener('keydown', (e) => {
+            // Ctrl+B / Cmd+B - новая заметка
+            if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+                e.preventDefault();
+                console.log('Горячая клавиша: Ctrl+B - новая заметка');
+                if (newNoteBtn) {
+                    newNoteBtn.click();
+                }
+            }
+            
+            // Ctrl+Q / Cmd+Q - сохранить заметку (когда модальное окно открыто)
+            if ((e.ctrlKey || e.metaKey) && e.key === 'q') {
+                if (noteModal.classList.contains('active')) {
+                    e.preventDefault();
+                    console.log('Горячая клавиша: Ctrl+Q - сохранить заметку');
+                    if (saveBtn) {
+                        saveBtn.click();
+                    }
+                }
+            }
+            
+            // Escape - закрыть модальные окна
+            if (e.key === 'Escape') {
+                console.log('Горячая клавиша: Escape');
+                
+                if (noteModal.classList.contains('active')) {
+                    e.preventDefault();
+                    noteModal.classList.remove('active');
+                    console.log('Закрыто модальное окно заметки');
+                }
+                
+                if (confirmModal.classList.contains('active')) {
+                    e.preventDefault();
+                    confirmModal.classList.remove('active');
+                    console.log('Закрыто окно подтверждения');
+                }
+                
+                if (clearAllModal.classList.contains('active')) {
+                    e.preventDefault();
+                    clearAllModal.classList.remove('active');
+                    console.log('Закрыто окно очистки');
+                }
+            }
+            
+            // Ctrl+F / Cmd+F - фокус в поиск
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                e.preventDefault();
+                console.log('Горячая клавиша: Ctrl+F - поиск');
+                if (searchInput) {
+                    searchInput.focus();
+                    searchInput.select();
+                }
+            }
+            
+            // Ctrl+N / Cmd+N - новая заметка (альтернативное сочетание)
+            if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+                e.preventDefault();
+                console.log('Горячая клавиша: Ctrl+N - новая заметка');
+                if (newNoteBtn) {
+                    newNoteBtn.click();
+                }
+            }
+            
+            // Ctrl+S / Cmd+S - сохранить (только когда редактируется заметка)
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                if (noteModal.classList.contains('active')) {
+                    e.preventDefault();
+                    console.log('Горячая клавиша: Ctrl+S - сохранить');
+                    if (saveBtn) {
+                        saveBtn.click();
+                    }
+                }
+            }
+        });
+        
+        console.log('✅ Горячие клавиши настроены');
+    }
+
     function setupEventListeners() {
         console.log('🔧 Настройка обработчиков событий...');
         
@@ -846,31 +927,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         // Горячие клавиши
-        document.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
-                e.preventDefault();
-                openNewNoteModal(); 
-            }
-            
-            if ((e.ctrlKey || e.metaKey) && e.key === 'q') {
-                if (noteModal.classList.contains('active')) {
-                    e.preventDefault();
-                    saveBtn.click();
-                }
-            }
-            
-            if (e.key === 'Escape') {
-                if (noteModal.classList.contains('active')) {
-                    noteModal.classList.remove('active');
-                }
-                if (confirmModal.classList.contains('active')) {
-                    confirmModal.classList.remove('active');
-                }
-                if (clearAllModal.classList.contains('active')) {
-                    clearAllModal.classList.remove('active');
-                }
-            }
-        });
+        setupKeyboardShortcuts();
         
         // Закрытие модальных окон по клику вне их
         window.addEventListener('click', (e) => {
@@ -912,4 +969,5 @@ document.addEventListener('DOMContentLoaded', () => {
     // Делаем функции доступными глобально для отладки
     window.loadNotes = loadNotes;
     window.renderNotes = renderNotes;
+    window.setupKeyboardShortcuts = setupKeyboardShortcuts;
 });
