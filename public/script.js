@@ -310,58 +310,69 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function saveNote(e) {
-        e.preventDefault();
+    e.preventDefault();
+    
+    const title = noteTitle.value.trim();
+    const content = noteText.value.trim();
+    const tags = noteTags.value.split(',').map(tag => tag.trim()).filter(tag => tag);
+    const isImportant = noteImportant.checked;
+    
+    if (!title || !content) {
+        showNotification('Заголовок и текст заметки обязательны', 'error');
+        return;
+    }
+    
+    try {
+        // Подготавливаем данные в формате, который ожидает сервер
+        const noteData = {
+            title,
+            content,
+            tags,
+            is_important: isImportant,
+            important: isImportant  // Добавляем оба поля для совместимости
+        };
         
-        const title = noteTitle.value.trim();
-        const content = noteText.value.trim();
-        const tags = noteTags.value.split(',').map(tag => tag.trim()).filter(tag => tag);
+        console.log('Сохранение заметки с данными:', noteData);
         
-        if (!title || !content) {
-            showNotification('Заголовок и текст заметки обязательны', 'error');
-            return;
-        }
-        
-        try {
-            // Подготавливаем данные в формате, который ожидает сервер
-            const noteData = {
-                title,
-                content,
-                tags,
-                is_important: noteImportant.checked
-            };
+        if (currentNoteId) {
+            // Обновление существующей заметки
+            const response = await fetch(`${API_URL}/notes/${currentNoteId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(noteData)
+            });
             
-            if (currentNoteId) {
-                // Обновление существующей заметки
-                const response = await fetch(`${API_URL}/notes/${currentNoteId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(noteData)
-                });
-                
-                if (!response.ok) throw new Error('Ошибка обновления');
-                
-                showNotification('Заметка обновлена', 'success');
-            } else {
-                // Создание новой заметки
-                const response = await fetch(`${API_URL}/notes`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(noteData)
-                });
-                
-                if (!response.ok) throw new Error('Ошибка создания');
-                
-                showNotification('Заметка создана', 'success');
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Ошибка обновления:', errorText);
+                throw new Error('Ошибка обновления');
             }
             
-            await loadNotes();
-            noteModal.classList.remove('active');
-        } catch (error) {
-            console.error('Ошибка сохранения:', error);
-            showNotification('Ошибка при сохранении заметки', 'error');
+            showNotification('Заметка обновлена', 'success');
+        } else {
+            // Создание новой заметки
+            const response = await fetch(`${API_URL}/notes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(noteData)
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Ошибка создания:', errorText);
+                throw new Error('Ошибка создания');
+            }
+            
+            showNotification('Заметка создана', 'success');
         }
+        
+        await loadNotes();
+        noteModal.classList.remove('active');
+    } catch (error) {
+        console.error('Ошибка сохранения:', error);
+        showNotification('Ошибка при сохранении заметки', 'error');
     }
-
+}
     async function deleteNote(id) {
         try {
             const response = await fetch(`${API_URL}/notes/${id}`, {
