@@ -390,32 +390,6 @@ app.delete('/api/notes/:id/permanent', async (req, res) => {
     }
 });
 
-// API: Восстановить заметку из корзины
-app.patch('/api/notes/:id/restore', async (req, res) => {
-    console.log('♻️ Восстановление заметки:', req.params.id);
-    
-    try {
-        await pool.execute(
-            'UPDATE notes SET is_deleted = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [req.params.id]
-        );
-        
-        console.log('✅ Заметка восстановлена');
-        
-        res.json({ 
-            success: true,
-            message: 'Заметка восстановлена' 
-        });
-    } catch (error) {
-        console.error('❌ Ошибка восстановления:', error.message);
-        res.status(500).json({ 
-            success: false,
-            error: 'Ошибка сервера',
-            details: error.message 
-        });
-    }
-});
-
 // API: Очистить ВСЕ заметки (обычные + корзина)
 app.delete('/api/notes/clear-all', async (req, res) => {
     console.log('🔥🔥 Очистка ВСЕХ заметок');
@@ -439,6 +413,32 @@ app.delete('/api/notes/clear-all', async (req, res) => {
         });
     } catch (error) {
         console.error('❌ Ошибка очистки:', error.message);
+        res.status(500).json({ 
+            success: false,
+            error: 'Ошибка сервера',
+            details: error.message 
+        });
+    }
+});
+
+// API: Восстановить заметку из корзины
+app.patch('/api/notes/:id/restore', async (req, res) => {
+    console.log('♻️ Восстановление заметки:', req.params.id);
+    
+    try {
+        await pool.execute(
+            'UPDATE notes SET is_deleted = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [req.params.id]
+        );
+        
+        console.log('✅ Заметка восстановлена');
+        
+        res.json({ 
+            success: true,
+            message: 'Заметка восстановлена' 
+        });
+    } catch (error) {
+        console.error('❌ Ошибка восстановления:', error.message);
         res.status(500).json({ 
             success: false,
             error: 'Ошибка сервера',
@@ -605,8 +605,32 @@ app.get('/api/health', (req, res) => {
         status: 'healthy',
         server: 'running',
         timestamp: new Date().toISOString(),
-        database: pool ? 'connected' : 'disconnected'
+        database: pool ? 'connected' : 'disconnected',
+        endpoints: {
+            clearAll: 'DELETE /api/notes/clear-all',
+            deletePermanent: 'DELETE /api/notes/:id/permanent',
+            deleteToTrash: 'DELETE /api/notes/:id',
+            restore: 'PATCH /api/notes/:id/restore'
+        }
     });
+});
+
+// API: Тест очистки
+app.get('/api/test-clear', async (req, res) => {
+    try {
+        if (!pool) {
+            return res.status(500).json({ error: 'Нет подключения к БД' });
+        }
+        
+        const [result] = await pool.execute('DELETE FROM notes');
+        res.json({ 
+            success: true, 
+            message: `Удалено ${result.affectedRows} заметок`,
+            details: 'Тестовый endpoint для проверки очистки'
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // Все остальные запросы - отдаём index.html
@@ -628,4 +652,6 @@ app.listen(PORT, () => {
     console.log(`   • PATCH  /api/notes/:id/restore - восстановить`);
     console.log(`   • DELETE /api/notes/clear-all - очистить всё`);
     console.log(`   • DELETE /api/trash/clear    - очистить корзину`);
+    console.log(`   • GET    /api/health         - проверка здоровья`);
+    console.log(`   • GET    /api/test-clear     - тест очистки`);
 });
