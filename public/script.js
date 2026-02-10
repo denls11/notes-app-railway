@@ -521,32 +521,64 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function clearAllNotes() {
-        try {
-            console.log('Отправка запроса на очистку всех заметок...');
-            
-            // Удаляем все заметки (и обычные, и из корзины)
-            const response = await fetch(`${API_URL}/notes/clear-all`, {
-                method: 'DELETE'
-            });
-            
-            console.log('Статус ответа:', response.status);
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('Текст ошибки:', errorText);
-                throw new Error(`Ошибка сервера: ${response.status}`);
+    try {
+        console.log('🔄 Начинаем очистку всех заметок...');
+        
+        // Используем правильный endpoint
+        const response = await fetch(`${API_URL}/notes/clear-all`, {
+            method: 'DELETE',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
             }
-            
-            const result = await response.json();
-            console.log('Результат:', result);
-            
-            showNotification('Все заметки удалены', 'success');
-            await loadNotes();
-        } catch (error) {
-            console.error('Ошибка очистки:', error);
-            showNotification(`Ошибка при очистке заметок: ${error.message}`, 'error');
+        });
+        
+        console.log('📤 Ответ получен. Статус:', response.status);
+        
+        // Пробуем прочитать ответ как JSON
+        let result;
+        try {
+            result = await response.json();
+            console.log('📦 Данные ответа:', result);
+        } catch (jsonError) {
+            console.error('❌ Не удалось распарсить JSON:', jsonError);
+            const text = await response.text();
+            console.error('📝 Текст ответа:', text);
+            throw new Error(`Ошибка сервера: ${response.status} - ${text}`);
         }
+        
+        if (!response.ok) {
+            throw new Error(result.error || result.details || `HTTP ${response.status}`);
+        }
+        
+        // Успех!
+        showNotification(`✅ Удалено ${result.deletedCount || 0} заметок`, 'success');
+        
+        // Обновляем список заметок
+        setTimeout(() => {
+            loadNotes();
+        }, 500);
+        
+    } catch (error) {
+        console.error('🔥 Ошибка очистки:', error);
+        
+        // Более понятное сообщение для пользователя
+        let userMessage = 'Ошибка при очистке заметок';
+        if (error.message.includes('Failed to fetch')) {
+            userMessage = 'Сервер недоступен. Проверьте подключение.';
+        } else if (error.message.includes('500')) {
+            userMessage = 'Ошибка на сервере. Попробуйте позже.';
+        }
+        
+        showNotification(`❌ ${userMessage}: ${error.message}`, 'error');
+        
+        // Показываем дополнительную информацию для отладки
+        console.log('💡 Для отладки проверьте:');
+        console.log('1. /api/health - статус сервера');
+        console.log('2. /api/debug/clear-test - тест БД');
+        console.log('3. Консоль сервера - логи ошибок');
     }
+}
 
     async function exportNotes() {
         try {
