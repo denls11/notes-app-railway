@@ -421,13 +421,21 @@ app.delete('/api/notes/clear-all', async (req, res) => {
     console.log('🔥🔥 Очистка ВСЕХ заметок');
     
     try {
-        await pool.execute('DELETE FROM notes');
+        if (!pool) {
+            return res.status(500).json({ 
+                success: false,
+                error: 'База данных недоступна' 
+            });
+        }
         
-        console.log('✅ Все заметки удалены');
+        const [result] = await pool.execute('DELETE FROM notes');
+        
+        console.log(`✅ Все заметки удалены, удалено ${result.affectedRows} записей`);
         
         res.json({ 
             success: true,
-            message: 'Все заметки удалены' 
+            message: 'Все заметки удалены',
+            deletedCount: result.affectedRows
         });
     } catch (error) {
         console.error('❌ Ошибка очистки:', error.message);
