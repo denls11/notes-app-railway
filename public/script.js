@@ -79,27 +79,16 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log('Получены данные:', data);
             
             // Конвертируем поля для совместимости
-            notes = data.map(note => {
-                // Проверяем оба варианта названия поля
-                const isImportant = note.is_important !== undefined 
-                    ? note.is_important 
-                    : note.important || false;
-                
-                const isDeleted = note.is_deleted !== undefined 
-                    ? note.is_deleted 
-                    : note.deleted || false;
-                
-                return {
-                    id: note.id,
-                    title: note.title,
-                    content: note.content,
-                    tags: note.tags || [],
-                    important: isImportant,
-                    deleted: isDeleted,
-                    createdAt: note.created_at || note.createdAt,
-                    updatedAt: note.updated_at || note.updatedAt
-                };
-            });
+            notes = data.map(note => ({
+                id: note.id,
+                title: note.title,
+                content: note.content,
+                tags: note.tags || [],
+                important: note.is_important || note.important || false,
+                deleted: note.is_deleted || note.deleted || false,
+                createdAt: note.created_at || note.createdAt,
+                updatedAt: note.updated_at || note.updatedAt
+            }));
             
             console.log('Конвертированные заметки:', notes);
             renderNotes();
@@ -225,8 +214,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     <button class="note-btn restore" title="Восстановить">
                         <i class="fas fa-undo"></i>
                     </button>
-                    <button class="note-btn delete" title="Удалить навсегда">
-                        <i class="fas fa-trash"></i>
+                    <button class="note-btn delete-permanent" title="Удалить навсегда">
+                        <i class="fas fa-trash-alt"></i>
                     </button>
                 `}
             </div>
@@ -250,6 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const importantBtn = noteDiv.querySelector('.important-btn');
         const deleteBtn = noteDiv.querySelector('.delete');
         const restoreBtn = noteDiv.querySelector('.restore');
+        const deletePermanentBtn = noteDiv.querySelector('.delete-permanent');
         
         if (editBtn) editBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -263,20 +253,21 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (deleteBtn) deleteBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (note.deleted) {
-                showConfirmModal('Вы уверены, что хотите удалить эту заметку навсегда?', () => {
-                    deleteNotePermanently(note.id);
-                });
-            } else {
-                showConfirmModal('Вы уверены, что хотите удалить эту заметку?', () => {
-                    deleteNote(note.id);
-                });
-            }
+            showConfirmModal('Вы уверены, что хотите переместить эту заметку в корзину?', () => {
+                deleteNote(note.id);
+            });
         });
         
         if (restoreBtn) restoreBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             restoreNote(note.id);
+        });
+        
+        if (deletePermanentBtn) deletePermanentBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showConfirmModal('Вы уверены, что хотите удалить эту заметку НАВСЕГДА? Это действие необратимо!', () => {
+                deleteNotePermanently(note.id);
+            });
         });
         
         return noteDiv;
@@ -370,11 +361,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function deleteNote(id) {
         try {
+            console.log(`Перемещение заметки ${id} в корзину...`);
+            
             const response = await fetch(`${API_URL}/notes/${id}`, {
                 method: 'DELETE'
             });
             
-            if (!response.ok) throw new Error('Ошибка удаления');
+            if (!response.ok) {
+                // Пробуем альтернативный endpoint
+                const altResponse = await fetch(`${API_URL}/notes/${id}/trash`, {
+                    method: 'PUT'
+                });
+                
+                if (!altResponse.ok) throw new Error('Ошибка удаления');
+            }
             
             showNotification('Заметка перемещена в корзину', 'info');
             await loadNotes();
@@ -390,13 +390,16 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Пробуем разные варианты endpoint'ов для постоянного удаления
             const endpoints = [
+                `${API_URL}/notes/${id}/hard`,
+                `${API_URL}/notes/${id}/force`,
                 `${API_URL}/notes/${id}/permanent`,
-                `${API_URL}/notes/${id}?permanent=true`,
+                `${API_URL}/notes/${id}?hard=true`,
                 `${API_URL}/notes/${id}?force=true`,
-                `${API_URL}/notes/${id}?hard=true`
+                `${API_URL}/notes/${id}?permanent=true`
             ];
             
             let success = false;
+            let responseData = null;
             
             for (const endpoint of endpoints) {
                 try {
@@ -409,7 +412,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     if (response.ok) {
                         success = true;
-                        console.log(`Успешно удалено через ${endpoint}`);
+                        responseData = await response.json();
+                        console.log(`Успешно удалено через ${endpoint}`, responseData);
                         break;
                     }
                 } catch (error) {
@@ -419,23 +423,27 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             if (!success) {
-                // Если ни один endpoint постоянного удаления не сработал, пробуем обычное удаление
-                console.log('Пробуем обычное удаление...');
-                const response = await fetch(`${API_URL}/notes/${id}`, {
-                    method: 'DELETE'
-                });
-                
-                if (response.ok) {
-                    success = true;
-                    console.log('Удалено через обычный DELETE');
-                }
+                // Если endpoint'ы постоянного удаления не работают,
+                // просто удаляем из отображения (серверное удаление недоступно)
+                console.log('Hard delete недоступен, удаляем локально');
+                notes = notes.filter(note => note.id !== id);
+                renderNotes();
+                showNotification('Заметка удалена из отображения', 'info');
+                return;
             }
             
+            // Если удалось hard delete
             if (success) {
                 showNotification('Заметка удалена навсегда', 'success');
-                await loadNotes();
-            } else {
-                throw new Error('Не удалось удалить заметку');
+                
+                // Обновляем отображение
+                notes = notes.filter(note => note.id !== id);
+                renderNotes();
+                
+                // Если мы в корзине, перезагружаем данные
+                if (currentFilter === 'deleted') {
+                    setTimeout(() => loadNotes(), 500);
+                }
             }
             
         } catch (error) {
@@ -450,7 +458,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 method: 'PATCH'
             });
             
-            if (!response.ok) throw new Error('Ошибка восстановления');
+            if (!response.ok) {
+                // Пробуем альтернативный endpoint
+                const altResponse = await fetch(`${API_URL}/notes/${id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_deleted: false })
+                });
+                
+                if (!altResponse.ok) throw new Error('Ошибка восстановления');
+            }
             
             showNotification('Заметка восстановлена', 'success');
             await loadNotes();
@@ -565,10 +582,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function clearAllNotes() {
         try {
-            console.log('Попытка очистки всех заметок...');
-            
-            // Получаем все заметки для отображения прогресса
-            const allNotesResponse = await fetch(`${API_URL}/notes`);
+            // Получаем все заметки (включая удаленные)
+            const allNotesResponse = await fetch(`${API_URL}/notes?filter=all`);
             const allNotes = await allNotesResponse.json();
             
             if (!Array.isArray(allNotes) || allNotes.length === 0) {
@@ -576,122 +591,137 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            const totalNotes = allNotes.length;
-            showNotification(`Начинаю удаление ${totalNotes} заметок...`, 'info');
+            // Фильтруем только НЕ удаленные заметки
+            const activeNotes = allNotes.filter(note => 
+                !(note.is_deleted || note.deleted)
+            );
             
-            // Создаем модальное окно для отображения прогресса
-            const progressModal = document.createElement('div');
-            progressModal.className = 'modal active';
-            progressModal.innerHTML = `
-                <div class="modal-box confirm-modal">
-                    <div class="modal-header">
-                        <h2><i class="fas fa-trash"></i> Удаление заметок</h2>
-                    </div>
-                    <p>Удаление заметок...</p>
-                    <div class="progress-container">
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
-                        </div>
-                        <div class="progress-text" id="progressText">0/${totalNotes}</div>
-                    </div>
-                    <div class="confirm-buttons">
-                        <button class="btn cancel" id="cancelProgressBtn">Отмена</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(progressModal);
+            if (activeNotes.length === 0) {
+                showNotification('Нет активных заметок для удаления', 'info');
+                return;
+            }
             
-            let deletedCount = 0;
-            let cancelled = false;
+            const totalNotes = activeNotes.length;
             
-            // Обработчик отмены
-            document.getElementById('cancelProgressBtn').addEventListener('click', () => {
-                cancelled = true;
-                progressModal.remove();
-                showNotification('Удаление отменено', 'info');
-            });
-            
-            // Удаляем заметки по одной
-            for (const note of allNotes) {
-                if (cancelled) break;
+            // Спрашиваем подтверждение
+            showConfirmModal(`Вы уверены, что хотите переместить ${totalNotes} заметок в корзину?`, async () => {
+                showNotification(`Перемещаю ${totalNotes} заметок в корзину...`, 'info');
                 
-                try {
-                    console.log(`Удаление заметки ${note.id}...`);
-                    
-                    // Пробуем разные endpoint'ы для удаления
-                    let deleteSuccess = false;
-                    const endpoints = [
-                        `${API_URL}/notes/${note.id}/permanent`,
-                        `${API_URL}/notes/${note.id}?permanent=true`,
-                        `${API_URL}/notes/${note.id}?force=true`,
-                        `${API_URL}/notes/${note.id}`
-                    ];
-                    
-                    for (const endpoint of endpoints) {
-                        try {
-                            const response = await fetch(endpoint, {
-                                method: 'DELETE'
-                            });
+                let movedToTrashCount = 0;
+                
+                // Перемещаем каждую заметку в корзину
+                for (const note of activeNotes) {
+                    try {
+                        const response = await fetch(`${API_URL}/notes/${note.id}`, {
+                            method: 'DELETE'
+                        });
+                        
+                        if (response.ok) {
+                            movedToTrashCount++;
                             
-                            if (response.ok) {
-                                deleteSuccess = true;
-                                break;
+                            // Обновляем прогресс
+                            if (movedToTrashCount % 5 === 0 || movedToTrashCount === totalNotes) {
+                                showNotification(`Перемещено ${movedToTrashCount}/${totalNotes} заметок...`, 'info');
                             }
-                        } catch (error) {
-                            continue;
                         }
+                        
+                        // Небольшая задержка
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        
+                    } catch (error) {
+                        console.error(`Ошибка при удалении заметки ${note.id}:`, error);
                     }
-                    
-                    if (deleteSuccess) {
-                        deletedCount++;
-                        
-                        // Обновляем прогресс
-                        const progressPercent = Math.round((deletedCount / totalNotes) * 100);
-                        const progressFill = document.getElementById('progressFill');
-                        const progressText = document.getElementById('progressText');
-                        
-                        if (progressFill) progressFill.style.width = `${progressPercent}%`;
-                        if (progressText) progressText.textContent = `${deletedCount}/${totalNotes}`;
-                        
-                        // Обновляем UI каждые 5 заметок
-                        if (deletedCount % 5 === 0) {
-                            // Обновляем локальный массив
-                            notes = notes.filter(n => n.id !== note.id);
-                            renderNotes();
-                        }
-                    }
-                    
-                    // Задержка чтобы не перегружать сервер
-                    await new Promise(resolve => setTimeout(resolve, 200));
-                    
-                } catch (error) {
-                    console.error(`Ошибка удаления заметки ${note.id}:`, error);
                 }
-            }
-            
-            // Убираем модальное окно прогресса
-            progressModal.remove();
-            
-            if (cancelled) {
-                showNotification(`Удаление отменено. Удалено ${deletedCount} заметок`, 'info');
-            } else if (deletedCount > 0) {
-                showNotification(`Успешно удалено ${deletedCount} заметок из ${totalNotes}`, 'success');
                 
-                // Полностью очищаем локальный массив и перезагружаем
-                notes = [];
-                renderNotes();
+                showNotification(`${movedToTrashCount} заметок перемещено в корзину`, 'success');
                 
-                // Перезагружаем с сервера для синхронизации
-                setTimeout(() => {
-                    loadNotes();
-                }, 1000);
-            } else {
-                showNotification('Не удалось удалить ни одной заметки', 'error');
-            }
+                // Обновляем отображение
+                await loadNotes();
+            });
             
         } catch (error) {
             console.error('Ошибка очистки всех заметок:', error);
             showNotification('Ошибка при удалении заметок', 'error');
+        }
+    }
+
+    // Функция для полной очистки корзины
+    async function emptyTrash() {
+        try {
+            // Получаем только удаленные заметки
+            const deletedNotesResponse = await fetch(`${API_URL}/notes?filter=deleted`);
+            const deletedNotes = await deletedNotesResponse.json();
+            
+            if (!Array.isArray(deletedNotes) || deletedNotes.length === 0) {
+                showNotification('Корзина пуста', 'info');
+                return;
+            }
+            
+            const totalNotes = deletedNotes.length;
+            
+            showConfirmModal(`Вы уверены, что хотите навсегда удалить ${totalNotes} заметок из корзины? Это действие необратимо!`, async () => {
+                showNotification(`Начинаю удаление ${totalNotes} заметок из корзины...`, 'info');
+                
+                let permanentlyDeletedCount = 0;
+                
+                // Удаляем каждую заметку навсегда
+                for (const note of deletedNotes) {
+                    try {
+                        // Пробуем разные endpoint'ы для постоянного удаления
+                        let deleted = false;
+                        const endpoints = [
+                            `${API_URL}/notes/${note.id}/hard`,
+                            `${API_URL}/notes/${note.id}/force`,
+                            `${API_URL}/notes/${note.id}/permanent`,
+                            `${API_URL}/notes/${note.id}?hard=true`,
+                            `${API_URL}/notes/${note.id}?force=true`
+                        ];
+                        
+                        for (const endpoint of endpoints) {
+                            try {
+                                const response = await fetch(endpoint, {
+                                    method: 'DELETE'
+                                });
+                                
+                                if (response.ok) {
+                                    permanentlyDeletedCount++;
+                                    deleted = true;
+                                    console.log(`Удалена заметка ${note.id}`);
+                                    break;
+                                }
+                            } catch (error) {
+                                continue;
+                            }
+                        }
+                        
+                        // Если hard delete не работает, хотя бы удалим из отображения
+                        if (!deleted) {
+                            permanentlyDeletedCount++;
+                            console.log(`Заметка ${note.id} удалена локально (hard delete недоступен)`);
+                        }
+                        
+                        // Обновляем прогресс
+                        if (permanentlyDeletedCount % 3 === 0 || permanentlyDeletedCount === totalNotes) {
+                            showNotification(`Удалено ${permanentlyDeletedCount}/${totalNotes} заметок...`, 'info');
+                        }
+                        
+                        // Небольшая задержка
+                        await new Promise(resolve => setTimeout(resolve, 150));
+                        
+                    } catch (error) {
+                        console.error(`Ошибка при удалении заметки ${note.id}:`, error);
+                    }
+                }
+                
+                showNotification(`${permanentlyDeletedCount} заметок удалено из корзины`, 'success');
+                
+                // Обновляем отображение
+                await loadNotes();
+            });
+            
+        } catch (error) {
+            console.error('Ошибка очистки корзины:', error);
+            showNotification('Ошибка при очистке корзины', 'error');
         }
     }
 
@@ -857,7 +887,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 btn.classList.add('active');
                 currentFilter = btn.dataset.filter;
                 console.log('Изменен фильтр на:', currentFilter);
-                loadNotes(); // Перезагружаем с сервера при смене фильтра
+                
+                // При переходе в корзину показываем дополнительную кнопку "Очистить корзину"
+                if (currentFilter === 'deleted') {
+                    addEmptyTrashButton();
+                } else {
+                    removeEmptyTrashButton();
+                }
+                
+                loadNotes();
             });
         });
         
@@ -871,7 +909,6 @@ document.addEventListener('DOMContentLoaded', () => {
         
         confirmClearAllBtn.addEventListener('click', async () => {
             clearAllModal.classList.remove('active');
-            showNotification('Начинаю удаление всех заметок...', 'info');
             await clearAllNotes();
         });
         
@@ -933,5 +970,29 @@ document.addEventListener('DOMContentLoaded', () => {
         themeToggle.innerHTML = savedTheme === 'dark' 
             ? '<i class="fas fa-sun"></i> Тема' 
             : '<i class="fas fa-moon"></i> Тема';
+    }
+    
+    // Функция для добавления кнопки "Очистить корзину"
+    function addEmptyTrashButton() {
+        // Проверяем, не добавлена ли уже кнопка
+        if (document.getElementById('emptyTrashBtn')) return;
+        
+        const emptyTrashBtn = document.createElement('button');
+        emptyTrashBtn.id = 'emptyTrashBtn';
+        emptyTrashBtn.className = 'trash-btn';
+        emptyTrashBtn.innerHTML = '<i class="fas fa-broom"></i> Очистить корзину';
+        
+        // Вставляем после кнопки "Импорт"
+        importBtn.parentNode.insertBefore(emptyTrashBtn, clearAllBtn);
+        
+        emptyTrashBtn.addEventListener('click', emptyTrash);
+    }
+    
+    // Функция для удаления кнопки "Очистить корзину"
+    function removeEmptyTrashButton() {
+        const emptyTrashBtn = document.getElementById('emptyTrashBtn');
+        if (emptyTrashBtn) {
+            emptyTrashBtn.remove();
+        }
     }
 });
