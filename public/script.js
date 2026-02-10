@@ -33,8 +33,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentSearch = '';
     let selectedNoteId = null;
 
-    loadNotes();
     setupEventListeners();
+    
+    loadNotes();
 
     // Загрузка заметок с сервера
     async function loadNotes() {
