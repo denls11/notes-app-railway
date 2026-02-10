@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     const API_URL = '/api';
     
+    // DOM элементы
     const saveBtn = document.getElementById('saveBtn');
     const notesContainer = document.getElementById('notesContainer');
     const newNoteBtn = document.getElementById('newNoteBtn');
@@ -26,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const cancelClearAllBtn = document.getElementById('cancelClearAllBtn');
     const themeToggle = document.getElementById('themeToggle');
 
+    // Состояние приложения
     let notes = [];
     let currentNoteId = null;
     let currentFilter = 'all';
@@ -33,30 +35,39 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentSearch = '';
     let selectedNoteId = null;
 
+    // Инициализация
     setupEventListeners();
-    
     loadNotes();
 
-    // Загрузка заметок с сервера
+    // ==================== ОСНОВНЫЕ ФУНКЦИИ ====================
+
     async function loadNotes() {
+        console.log('🔄 Загрузка заметок...');
+        
+        // Показываем состояние загрузки
+        if (notesContainer) {
+            notesContainer.innerHTML = `
+                <div class="empty">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <h3>Загрузка заметок...</h3>
+                    <p>Пожалуйста, подождите</p>
+                </div>
+            `;
+        }
+        
         try {
-            showNotification('Загрузка заметок...', 'info');
-            
             // Формируем URL с параметрами
             let url = `${API_URL}/notes`;
             const params = new URLSearchParams();
             
-            // Добавляем фильтр только если он не 'all'
             if (currentFilter && currentFilter !== 'all') {
                 params.append('filter', currentFilter);
             }
             
-            // Добавляем поиск если есть
             if (currentSearch) {
                 params.append('search', currentSearch);
             }
             
-            // Добавляем сортировку если есть
             if (currentSort) {
                 params.append('sort', currentSort);
             }
@@ -66,6 +77,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 url += `?${queryString}`;
             }
             
+            console.log('📡 Запрос к:', url);
+            
             const response = await fetch(url);
             
             if (!response.ok) {
@@ -73,10 +86,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             const data = await response.json();
+            console.log(`✅ Получено ${data.length} заметок`);
             
             // Конвертируем поля для совместимости
             notes = data.map(note => {
-                // Проверяем оба варианта названия поля
                 const isImportant = note.is_important !== undefined 
                     ? note.is_important 
                     : note.important || false;
@@ -98,10 +111,27 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             
             renderNotes();
+            
         } catch (error) {
-            console.error('Ошибка при загрузке заметок:', error);
+            console.error('❌ Ошибка при загрузке заметок:', error);
+            
+            // Показываем сообщение об ошибке
+            if (notesContainer) {
+                notesContainer.innerHTML = `
+                    <div class="empty">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <h3>Ошибка загрузки</h3>
+                        <p>${error.message}</p>
+                        <button onclick="loadNotes()" class="btn" style="margin-top: 10px;">
+                            <i class="fas fa-redo"></i> Попробовать снова
+                        </button>
+                    </div>
+                `;
+            }
+            
             showNotification('Не удалось загрузить заметки', 'error');
-            // Fallback на localStorage, если сервер недоступен
+            
+            // Fallback на localStorage
             loadNotesFromLocalStorage();
         }
     }
@@ -116,6 +146,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderNotes() {
+        if (!notesContainer) return;
+        
         notesContainer.innerHTML = '';
         
         // Фильтруем на клиенте только если нужно (для поиска)
@@ -281,6 +313,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentNoteId = null;
         document.getElementById('modalTitle').textContent = 'Новая заметка';
         noteForm.reset();
+        noteImportant.checked = false;
         noteModal.classList.add('active');
         noteTitle.focus();
     }
@@ -300,6 +333,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const isImportant = note.is_important !== undefined 
                 ? note.is_important 
                 : note.important || false;
+            
             noteImportant.checked = isImportant;
             
             noteModal.classList.add('active');
@@ -316,6 +350,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const title = noteTitle.value.trim();
         const content = noteText.value.trim();
         const tags = noteTags.value.split(',').map(tag => tag.trim()).filter(tag => tag);
+        const isImportant = noteImportant.checked;
         
         if (!title || !content) {
             showNotification('Заголовок и текст заметки обязательны', 'error');
@@ -328,7 +363,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 title,
                 content,
                 tags,
-                is_important: noteImportant.checked
+                is_important: isImportant,
+                important: isImportant
             };
             
             if (currentNoteId) {
@@ -418,47 +454,16 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const newImportantStatus = !note.important;
             
-            // Пробуем разные варианты endpoint'ов и форматов данных
-            let response;
+            const response = await fetch(`${API_URL}/notes/${id}/important`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    is_important: newImportantStatus,
+                    important: newImportantStatus 
+                })
+            });
             
-            // Вариант 1: Специальный endpoint для важности
-            try {
-                response = await fetch(`${API_URL}/notes/${id}/important`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        is_important: newImportantStatus,
-                        important: newImportantStatus 
-                    })
-                });
-                
-                if (!response.ok) throw new Error('Endpoint /important не сработал');
-            } catch (error1) {
-                console.log('Пробуем вариант 2:', error1);
-                
-                // Вариант 2: Обновление через основной endpoint
-                response = await fetch(`${API_URL}/notes/${id}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        is_important: newImportantStatus 
-                    })
-                });
-                
-                if (!response.ok) {
-                    // Вариант 3: Пробуем PUT
-                    response = await fetch(`${API_URL}/notes/${id}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            ...note,
-                            is_important: newImportantStatus 
-                        })
-                    });
-                    
-                    if (!response.ok) throw new Error('Все варианты не сработали');
-                }
-            }
+            if (!response.ok) throw new Error('Не удалось изменить важность');
             
             // Обновляем локальное состояние
             note.important = newImportantStatus;
@@ -617,8 +622,6 @@ document.addEventListener('DOMContentLoaded', () => {
                             errorCount++;
                         }
                         
-                        // Не показываем уведомление для каждой заметки
-                        
                     } catch (noteError) {
                         errorCount++;
                     }
@@ -749,63 +752,100 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function setupEventListeners() {
-        newNoteBtn.addEventListener('click', openNewNoteModal);
+        console.log('🔧 Настройка обработчиков событий...');
         
-        closeModal.addEventListener('click', () => noteModal.classList.remove('active'));
-        cancelBtn.addEventListener('click', () => noteModal.classList.remove('active'));
+        // Проверяем что все элементы существуют
+        if (!notesContainer) {
+            console.error('❌ Не найден notesContainer!');
+            return;
+        }
         
-        noteForm.addEventListener('submit', saveNote);
+        if (!searchInput) console.warn('⚠️ Не найден searchInput');
+        if (!sortSelect) console.warn('⚠️ Не найден sortSelect');
         
-        searchInput.addEventListener('input', (e) => {
-            currentSearch = e.target.value;
-            renderNotes();
-        });
-
-        noteForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            saveNote(e);
-        });
-
-        saveBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            saveNote(e);
-        });
+        // Основные обработчики
+        if (newNoteBtn) {
+            newNoteBtn.addEventListener('click', openNewNoteModal);
+        }
         
-        sortSelect.addEventListener('change', (e) => {
-            currentSort = e.target.value;
-            renderNotes();
-        });
+        if (closeModal) {
+            closeModal.addEventListener('click', () => noteModal.classList.remove('active'));
+        }
         
-        filterBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                filterBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentFilter = btn.dataset.filter;
-                loadNotes();
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => noteModal.classList.remove('active'));
+        }
+        
+        if (noteForm) {
+            noteForm.addEventListener('submit', saveNote);
+        }
+        
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                currentSearch = e.target.value;
+                renderNotes();
             });
-        });
+        }
         
-        exportBtn.addEventListener('click', exportNotes);
+        if (saveBtn) {
+            saveBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                saveNote(e);
+            });
+        }
         
-        importBtn.addEventListener('click', importNotes);
+        if (sortSelect) {
+            sortSelect.addEventListener('change', (e) => {
+                currentSort = e.target.value;
+                renderNotes();
+            });
+        }
         
-        clearAllBtn.addEventListener('click', () => {
-            clearAllModal.classList.add('active');
-        });
+        // Обработчики фильтров
+        if (filterBtns.length > 0) {
+            filterBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    filterBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentFilter = btn.dataset.filter;
+                    loadNotes(); // Перезагружаем с сервера при смене фильтра
+                });
+            });
+        }
         
-        confirmClearAllBtn.addEventListener('click', async () => {
-            try {
+        // Остальные обработчики
+        if (exportBtn) {
+            exportBtn.addEventListener('click', exportNotes);
+        }
+        
+        if (importBtn) {
+            importBtn.addEventListener('click', importNotes);
+        }
+        
+        if (clearAllBtn) {
+            clearAllBtn.addEventListener('click', () => {
+                clearAllModal.classList.add('active');
+            });
+        }
+        
+        if (confirmClearAllBtn) {
+            confirmClearAllBtn.addEventListener('click', async () => {
+                try {
+                    clearAllModal.classList.remove('active');
+                    await clearAllNotes();
+                } catch (error) {
+                    console.error('Ошибка при очистке:', error);
+                }
+            });
+        }
+        
+        if (cancelClearAllBtn) {
+            cancelClearAllBtn.addEventListener('click', () => {
                 clearAllModal.classList.remove('active');
-                await clearAllNotes();
-            } catch (error) {
-                console.error('Ошибка при очистке:', error);
-            }
-        });
+            });
+        }
         
-        cancelClearAllBtn.addEventListener('click', () => {
-            clearAllModal.classList.remove('active');
-        });
-        
+        // Горячие клавиши
         document.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
                 e.preventDefault();
@@ -832,6 +872,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
         
+        // Закрытие модальных окон по клику вне их
         window.addEventListener('click', (e) => {
             if (e.target === noteModal) {
                 noteModal.classList.remove('active');
@@ -844,21 +885,31 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
         
-        themeToggle.addEventListener('click', () => {
-            const currentTheme = document.documentElement.getAttribute('data-theme');
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            document.documentElement.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
+        // Переключение темы
+        if (themeToggle) {
+            themeToggle.addEventListener('click', () => {
+                const currentTheme = document.documentElement.getAttribute('data-theme');
+                const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', newTheme);
+                localStorage.setItem('theme', newTheme);
+                
+                themeToggle.innerHTML = newTheme === 'dark' 
+                    ? '<i class="fas fa-sun"></i> Тема' 
+                    : '<i class="fas fa-moon"></i> Тема';
+            });
             
-            themeToggle.innerHTML = newTheme === 'dark' 
+            // Восстановление темы
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            themeToggle.innerHTML = savedTheme === 'dark' 
                 ? '<i class="fas fa-sun"></i> Тема' 
                 : '<i class="fas fa-moon"></i> Тема';
-        });
+        }
         
-        const savedTheme = localStorage.getItem('theme') || 'light';
-        document.documentElement.setAttribute('data-theme', savedTheme);
-        themeToggle.innerHTML = savedTheme === 'dark' 
-            ? '<i class="fas fa-sun"></i> Тема' 
-            : '<i class="fas fa-moon"></i> Тема';
+        console.log('✅ Обработчики событий настроены');
     }
+    
+    // Делаем функции доступными глобально для отладки
+    window.loadNotes = loadNotes;
+    window.renderNotes = renderNotes;
 });
