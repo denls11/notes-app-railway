@@ -38,90 +38,63 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Загрузка заметок с сервера
     async function loadNotes() {
-    console.log('🔄 Начало загрузки заметок...');
-    console.log('Текущий фильтр:', currentFilter);
-    console.log('Текущий поиск:', currentSearch);
-    
-    try {
-        showNotification('Загрузка заметок...', 'info');
-        
-        // Формируем URL с параметрами
-        let url = `${API_URL}/notes`;
-        const params = new URLSearchParams();
-        
-        // Добавляем фильтр только если он не 'all'
-        if (currentFilter && currentFilter !== 'all') {
-            params.append('filter', currentFilter);
-        }
-        
-        // Добавляем поиск если есть
-        if (currentSearch) {
-            params.append('search', currentSearch);
-        }
-        
-        // Добавляем сортировку если есть
-        if (currentSort) {
-            params.append('sort', currentSort);
-        }
-        
-        const queryString = params.toString();
-        if (queryString) {
-            url += `?${queryString}`;
-        }
-        
-        console.log('📡 Запрос к:', url);
-        
-        const startTime = Date.now();
-        const response = await fetch(url);
-        const endTime = Date.now();
-        
-        console.log(`⏱️ Запрос выполнен за ${endTime - startTime}ms`);
-        console.log('📊 Статус ответа:', response.status, response.statusText);
-        
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('❌ Ошибка HTTP:', errorText);
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        console.log(`✅ Получено ${data.length} заметок`);
-        
-        // Конвертируем поля для совместимости
-        notes = data.map(note => {
-            // Проверяем оба варианта названия поля
-            const isImportant = note.is_important !== undefined 
-                ? note.is_important 
-                : note.important || false;
+        try {
+            showNotification('Загрузка заметок...', 'info');
             
-            const isDeleted = note.is_deleted !== undefined 
-                ? note.is_deleted 
-                : note.deleted || false;
+            // Формируем URL с параметрами
+            let url = `${API_URL}/notes`;
+            const params = new URLSearchParams();
             
-            return {
-                id: note.id,
-                title: note.title,
-                content: note.content,
-                tags: note.tags || [],
-                important: isImportant,
-                deleted: isDeleted,
-                createdAt: note.created_at || note.createdAt,
-                updatedAt: note.updated_at || note.updatedAt
-            };
-        });
-        
-        console.log('📝 Конвертированные заметки:', notes);
-        renderNotes();
-        
-    } catch (error) {
-        console.error('❌ Ошибка при загрузке заметок:', error);
-        console.error('Стек ошибки:', error.stack);
-        showNotification('Не удалось загрузить заметки', 'error');
-        
-        // Fallback на localStorage, если сервер недоступен
-        loadNotesFromLocalStorage();
-    }
-}
+            // Добавляем фильтр только если он не 'all'
+            if (currentFilter && currentFilter !== 'all') {
+                params.append('filter', currentFilter);
+            }
+            
+            // Добавляем поиск если есть
+            if (currentSearch) {
+                params.append('search', currentSearch);
+            }
+            
+            // Добавляем сортировку если есть
+            if (currentSort) {
+                params.append('sort', currentSort);
+            }
+            
+            const queryString = params.toString();
+            if (queryString) {
+                url += `?${queryString}`;
+            }
+            
+            const response = await fetch(url);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            // Конвертируем поля для совместимости
+            notes = data.map(note => {
+                // Проверяем оба варианта названия поля
+                const isImportant = note.is_important !== undefined 
+                    ? note.is_important 
+                    : note.important || false;
+                
+                const isDeleted = note.is_deleted !== undefined 
+                    ? note.is_deleted 
+                    : note.deleted || false;
+                
+                return {
+                    id: note.id,
+                    title: note.title,
+                    content: note.content,
+                    tags: note.tags || [],
+                    important: isImportant,
+                    deleted: isDeleted,
+                    createdAt: note.created_at || note.createdAt,
+                    updatedAt: note.updated_at || note.updatedAt
+                };
+            });
             
             renderNotes();
         } catch (error) {
@@ -312,98 +285,83 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function editNote(id) {
-    try {
-        const response = await fetch(`${API_URL}/notes/${id}`);
-        const note = await response.json();
-        
-        currentNoteId = id;
-        document.getElementById('modalTitle').textContent = 'Редактировать заметку';
-        noteTitle.value = note.title;
-        noteText.value = note.content;
-        noteTags.value = note.tags ? note.tags.join(', ') : '';
-        
-        // Используем правильное поле для важности
-        const isImportant = note.is_important !== undefined 
-            ? note.is_important 
-            : note.important || false;
-        
-        console.log(`Загрузка заметки ${id}: is_important = ${isImportant}`);
-        console.log('Все поля заметки:', note);
-        
-        noteImportant.checked = isImportant;
-        
-        noteModal.classList.add('active');
-        noteTitle.focus();
-    } catch (error) {
-        console.error('Ошибка при загрузке заметки:', error);
-        showNotification('Не удалось загрузить заметку', 'error');
+        try {
+            const response = await fetch(`${API_URL}/notes/${id}`);
+            const note = await response.json();
+            
+            currentNoteId = id;
+            document.getElementById('modalTitle').textContent = 'Редактировать заметку';
+            noteTitle.value = note.title;
+            noteText.value = note.content;
+            noteTags.value = note.tags ? note.tags.join(', ') : '';
+            
+            // Используем правильное поле для важности
+            const isImportant = note.is_important !== undefined 
+                ? note.is_important 
+                : note.important || false;
+            noteImportant.checked = isImportant;
+            
+            noteModal.classList.add('active');
+            noteTitle.focus();
+        } catch (error) {
+            console.error('Ошибка при загрузке заметки:', error);
+            showNotification('Не удалось загрузить заметку', 'error');
+        }
     }
-}
 
     async function saveNote(e) {
-    e.preventDefault();
-    
-    const title = noteTitle.value.trim();
-    const content = noteText.value.trim();
-    const tags = noteTags.value.split(',').map(tag => tag.trim()).filter(tag => tag);
-    const isImportant = noteImportant.checked;
-    
-    if (!title || !content) {
-        showNotification('Заголовок и текст заметки обязательны', 'error');
-        return;
-    }
-    
-    try {
-        // Подготавливаем данные в формате, который ожидает сервер
-        const noteData = {
-            title,
-            content,
-            tags,
-            is_important: isImportant,
-            important: isImportant  // Добавляем оба поля для совместимости
-        };
+        e.preventDefault();
         
-        console.log('Сохранение заметки с данными:', noteData);
+        const title = noteTitle.value.trim();
+        const content = noteText.value.trim();
+        const tags = noteTags.value.split(',').map(tag => tag.trim()).filter(tag => tag);
         
-        if (currentNoteId) {
-            // Обновление существующей заметки
-            const response = await fetch(`${API_URL}/notes/${currentNoteId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(noteData)
-            });
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('Ошибка обновления:', errorText);
-                throw new Error('Ошибка обновления');
-            }
-            
-            showNotification('Заметка обновлена', 'success');
-        } else {
-            // Создание новой заметки
-            const response = await fetch(`${API_URL}/notes`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(noteData)
-            });
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('Ошибка создания:', errorText);
-                throw new Error('Ошибка создания');
-            }
-            
-            showNotification('Заметка создана', 'success');
+        if (!title || !content) {
+            showNotification('Заголовок и текст заметки обязательны', 'error');
+            return;
         }
         
-        await loadNotes();
-        noteModal.classList.remove('active');
-    } catch (error) {
-        console.error('Ошибка сохранения:', error);
-        showNotification('Ошибка при сохранении заметки', 'error');
+        try {
+            // Подготавливаем данные в формате, который ожидает сервер
+            const noteData = {
+                title,
+                content,
+                tags,
+                is_important: noteImportant.checked
+            };
+            
+            if (currentNoteId) {
+                // Обновление существующей заметки
+                const response = await fetch(`${API_URL}/notes/${currentNoteId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(noteData)
+                });
+                
+                if (!response.ok) throw new Error('Ошибка обновления');
+                
+                showNotification('Заметка обновлена', 'success');
+            } else {
+                // Создание новой заметки
+                const response = await fetch(`${API_URL}/notes`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(noteData)
+                });
+                
+                if (!response.ok) throw new Error('Ошибка создания');
+                
+                showNotification('Заметка создана', 'success');
+            }
+            
+            await loadNotes();
+            noteModal.classList.remove('active');
+        } catch (error) {
+            console.error('Ошибка сохранения:', error);
+            showNotification('Ошибка при сохранении заметки', 'error');
+        }
     }
-}
+
     async function deleteNote(id) {
         try {
             const response = await fetch(`${API_URL}/notes/${id}`, {
